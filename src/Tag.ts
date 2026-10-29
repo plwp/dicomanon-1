@@ -86,8 +86,12 @@ export default class Tag {
         useSyntax == EXPLICIT_LITTLE_ENDIAN
           ? true
           : false,
-      // PS3.5 A.4: only Pixel Data is encapsulated; every other OB/OW element
-      // keeps its defined length under a compressed transfer syntax.
+      // PS3.5 A.4: only top-level Pixel Data is encapsulated ("if present in
+      // the top-level Data Set"); every other OB/OW element keeps its defined
+      // length under a compressed transfer syntax. Pixel Data nested in a
+      // sequence item (e.g. Icon Image Sequence) stays native: sequence
+      // items are written with the normalized (native) syntax below, so
+      // this test is false for them.
       isEncapsulated =
         this.isPixelDataTag() && DicomMessage.isEncapsulated(syntax);
 

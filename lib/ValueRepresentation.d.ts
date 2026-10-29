@@ -2,7 +2,7 @@ import { BufferStream } from "./BufferStream";
 import { NormalizedSyntax, TagDict, TagValueEntry } from "./Message";
 import Tag from "./Tag";
 export declare function tagFromNumbers(group: number, element: number): Tag;
-export type EncapsulationErrorCode = "ITEM_TAG_MISSING" | "OFFSET_TABLE_LENGTH" | "ITEM_PAST_END" | "FRAGMENT_LENGTH_UNDEFINED" | "FRAGMENT_LENGTH_ODD" | "FRAGMENT_TOO_LONG" | "OFFSET_TOO_LARGE" | "DELIMITER_MISSING" | "DELIMITER_LENGTH" | "OFFSET_TABLE_MISMATCH";
+export type EncapsulationErrorCode = "ITEM_TAG_MISSING" | "OFFSET_TABLE_LENGTH" | "ITEM_PAST_END" | "FRAGMENT_LENGTH_UNDEFINED" | "FRAGMENT_LENGTH_ODD" | "FRAGMENT_LENGTH_ZERO" | "FRAGMENT_TOO_LONG" | "OFFSET_TOO_LARGE" | "DELIMITER_MISSING" | "DELIMITER_LENGTH" | "OFFSET_TABLE_MISMATCH";
 /**
  * Encapsulated Pixel Data (PS3.5 A.4) that cannot be read or written
  * correctly. Thrown instead of guessing, because a wrong guess leaves a file
@@ -61,8 +61,10 @@ export declare class BinaryRepresentation extends ValueRepresentation<ArrayBuffe
     /**
      * The Basic Offset Table to write for these fragment lengths (PS3.5 A.4).
      * Offsets count from the first fragment item, each item taking 8 + length
-     * bytes, so a valid table starts at 0, strictly increases and names only
-     * fragment item boundaries. A table that does not match would leave frames
+     * bytes, so a valid table starts at 0 ("the first entry will always be
+     * 00000000H") and names only fragment item boundaries. That it strictly
+     * increases is inferred from each offset naming the start of a successive
+     * frame's first fragment; A.4 has no sentence saying so. A table that does not match would leave frames
      * 2..N unlocatable in a viewer, so: an empty table stays empty; a valid one
      * is kept; a mismatched one is rebuilt when it has one entry per fragment
      * (one fragment per frame, the only layout it can describe); otherwise the

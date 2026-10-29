@@ -99,10 +99,12 @@ function rawPixelData(buf: ArrayBuffer): RawPixelData {
 }
 
 /**
- * Split fragments into frames the way a reader must (PS3.5 A.4 and 8.2):
- * by the Basic Offset Table when present; otherwise one fragment per frame
- * when the counts agree; otherwise, for a single frame, all fragments.
- * Returns null when the layout is ambiguous (a reader could not do better).
+ * Split fragments into frames without decoding (PS3.5 A.4 and 8.2): by the
+ * Basic Offset Table when present; otherwise, for a single frame, all
+ * fragments; otherwise one fragment per frame when the fragment and frame
+ * counts agree (the 8.2 comparison). Returns null otherwise: a reader would
+ * then have to find frame boundaries in the codec stream, which this
+ * helper does not do.
  */
 function framesOf(raw: RawPixelData, numberOfFrames: number): Uint8Array[] | null {
   const concat = (parts: Uint8Array[]) => {

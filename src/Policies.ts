@@ -598,17 +598,20 @@ function enhancedGeneralEquipmentModulePolicy(): IPolicy {
   Per-Frame Functional Groups Sequence (5200,9230) is Type 1C, required when
   any frame has per-frame groups (PS3.3 C.7.6.16, Table C.7.6.16-1). The
   Multi-frame Functional Groups Module is Mandatory in the Enhanced CT
-  (PS3.3 A.38), Enhanced MR (A.36.2.3) and Enhanced XA (A.47.3) IODs, and
-  their per-frame geometry (Plane Position) lives only here. Removing the
-  sequences, as earlier versions did, leaves a non-conformant file whose
-  frames cannot be placed in space.
+  (PS3.3 A.38), Enhanced MR (A.36.2.3) and Enhanced XA (A.47.3) IODs.
+  Enhanced CT and MR keep their per-frame geometry (Plane Position, Plane
+  Orientation and Pixel Measures, all M in Tables A.38-2 and A.36-2) only
+  here. Enhanced XA (Table A.47-2) has none of those macros: it describes
+  its geometry with the X-Ray macros of C.8.19.6, which this policy does
+  not keep. Removing the sequences, as earlier versions did, leaves a
+  non-conformant file whose CT and MR frames cannot be placed in space.
 
   How. Each Item is a Data Set of functional-group macros, so every Item is
   filtered through functionalGroupItemPolicy(), itself a whitelist with
   default "remove", recursively. PS3.15 Annex E (Basic Application Level
   Confidentiality Profile), Table E.1-1, checked against PS3.15 2026d:
 
-  Kept: not listed in Table E.1-1 (the Profile requires no action), and
+  Kept: not listed in Table E.1-1 (Table E.1-1 lists no action), and
   needed to display or measure the frames:
     Plane Position Sequence (0020,9113) > Image Position (Patient) (0020,0032)
     Plane Orientation Sequence (0020,9116) > Image Orientation (Patient) (0020,0037)
@@ -617,7 +620,10 @@ function enhancedGeneralEquipmentModulePolicy(): IPolicy {
     Frame VOI LUT Sequence (0028,9132) > Window Center (0028,1050),
       Window Width (0028,1051), VOI LUT Function (0028,1056)
     Pixel Value Transformation Sequence (0028,9145) > Rescale Intercept
-      (0028,1052), Rescale Slope (0028,1053), Rescale Type (0028,1054)
+      (0028,1052), Rescale Slope (0028,1053), Rescale Type (0028,1054).
+      PS3.3 C.7.6.16.2.9; for Enhanced CT the macro is CT Pixel Value
+      Transformation (C.8.15.3.10, M in Table A.38-2), with the same
+      attributes.
     CT Image Frame Type Sequence (0018,9329), MR Image Frame Type Sequence
       (0018,9226) > Frame Type (0008,9007), Pixel Presentation (0008,9205),
       Volumetric Properties (0008,9206), Volume Based Calculation Technique
@@ -648,19 +654,20 @@ function enhancedGeneralEquipmentModulePolicy(): IPolicy {
 
   Kept empty (Type 2, so an empty value satisfies the IOD):
     Derivation Image Sequence (0008,9124). Conditionally required for
-      derived Enhanced MR and XA frames (PS3.3 C.7.6.16.2.6) and Type 2, so
+      derived Enhanced CT, MR and XA frames (PS3.3 C.7.6.16.2.6) and Type 2, so
       when present it is kept with no items. Its Source Image Sequence
       (0008,2112, X/Z/U*) and Derivation Description (0008,2111, X) go with
       the items.
 
   Hashed (Table E.1-1 action U, "replace with a non-zero length UID that is
-  internally consistent"):
+  internally consistent within a set of Instances"):
     Irradiation Event Identification Sequence (0018,9477) > Irradiation
       Event UID (0008,3010). Same deterministic hash as SOP Instance UID, so
       every frame of one event keeps one UID.
 
   Replaced with the dummy 19700101000000.000000 (Table E.1-1 action D,
-  "replace with a non-zero length value that may be a dummy value"; D, not
+  "replace with a non-zero length value that may be a dummy value and
+  consistent with the VR"; D, not
   X, because these are Type 1C in Frame Content and removal would break
   conformance):
     Frame Acquisition DateTime (0018,9074)
@@ -670,7 +677,7 @@ function enhancedGeneralEquipmentModulePolicy(): IPolicy {
   action: neither attribute is listed there):
     Real World Value Mapping item > LUT Label (0040,9210) "RWVM" and LUT
       Explanation (0028,3003) "Real world value mapping". Free text, but
-      Type 1 in the item (PS3.3 Table C.7.6.16-12), so removal would break
+      Type 1 in the item (PS3.3 Table C.7.6.16-12b), so removal would break
       conformance; a fixed non-empty value keeps the item valid and carries
       none of the input text.
 
@@ -794,7 +801,8 @@ function functionalGroupItemPolicy(): IPolicy {
     },
     "00289145": {
       action: "keep",
-      description: "Pixel Value Transformation Sequence",
+      description:
+        "Pixel Value Transformation Sequence (PS3.3 C.7.6.16.2.9; CT Pixel Value Transformation C.8.15.3.10 for Enhanced CT)",
       items: {
         default: REMOVE_UNLISTED,
         "00281052": { action: "keep", description: "Rescale Intercept" },
@@ -870,13 +878,13 @@ function functionalGroupItemPolicy(): IPolicy {
           action: "replace",
           value: ["RWVM"],
           description:
-            "LUT Label, fixed value (Type 1 in the item, PS3.3 Table C.7.6.16-12; not in Table E.1-1)",
+            "LUT Label, fixed value (Type 1 in the item, PS3.3 Table C.7.6.16-12b; not in Table E.1-1)",
         },
         "00283003": {
           action: "replace",
           value: ["Real world value mapping"],
           description:
-            "LUT Explanation, fixed value (Type 1 in the item, PS3.3 Table C.7.6.16-12; not in Table E.1-1)",
+            "LUT Explanation, fixed value (Type 1 in the item, PS3.3 Table C.7.6.16-12b; not in Table E.1-1)",
         },
       },
     },
@@ -1553,11 +1561,15 @@ function positronEmissionTomographyImagePolicy(): IPolicy {
  * Enhanced CT, MR and XA Image IODs (PS3.3 A.38, A.36.2, A.47). The
  * Multi-frame Functional Groups Module is Mandatory in each; its nested
  * whitelist is documented at functionalGroupItemPolicy(). The Enhanced CT,
- * MR and XA Image Modules share the image attributes kept by
- * xRay3DImageModulePolicy(). These classes are not yet listed in
- * supportedSOPClasses(): their acquisition macros are not reviewed.
+ * MR and XA Image Modules are approximated by the image attributes kept by
+ * xRay3DImageModulePolicy(). Known gaps: the Enhanced CT Image Module
+ * (C.8.15.2) also requires Acquisition DateTime (0008,002A) and Acquisition
+ * Duration (0018,9073) under conditions, handled for Enhanced CT by
+ * enhancedCTImageModulePolicy(); the Enhanced MR and XA Image Modules were
+ * not checked. These classes are not yet listed in supportedSOPClasses():
+ * their acquisition macros are not reviewed.
  */
-function enhancedImagePolicy(classUID: string): IPolicy {
+function enhancedImagePolicy(classUID: string, ...extra: IPolicy[]): IPolicy {
   return addPolicies(
     patientModulePolicy(),
     generalStudyModulePolicy(),
@@ -1571,6 +1583,7 @@ function enhancedImagePolicy(classUID: string): IPolicy {
     acquisitionContextModulePolicy(),
     xRay3DImageModulePolicy(),
     sopCommonModulePolicy(),
+    ...extra,
     {
       default: {
         action: "remove",
@@ -1585,8 +1598,34 @@ function enhancedImagePolicy(classUID: string): IPolicy {
   );
 }
 
+/**
+ * Enhanced CT Image Module (PS3.3 C.8.15.2) acquisition timing. Acquisition
+ * DateTime (0008,002A) is Type 1C there and PS3.15 Table E.1-1 lists it as
+ * X/Z/D, so when present it is replaced with a dummy (D) rather than removed.
+ * Acquisition Duration (0018,9073) is Type 1C there, numeric, and not listed
+ * in Table E.1-1, so it is kept. The Enhanced MR (C.8.13.1) and Enhanced XA
+ * (C.8.19.2) Image Modules were not checked against the standard, so their
+ * policies do not take this yet.
+ */
+function enhancedCTImageModulePolicy(): IPolicy {
+  return {
+    "0008002A": {
+      action: "replace",
+      value: ["19700101000000.000000"],
+      description: "Acquisition DateTime (PS3.15 Table E.1-1: X/Z/D; Type 1C, PS3.3 C.8.15.2)",
+    },
+    "00189073": {
+      action: "keep",
+      description: "Acquisition Duration (Type 1C, PS3.3 C.8.15.2; not in Table E.1-1)",
+    },
+  };
+}
+
 function enhancedCTImagePolicy(): IPolicy {
-  return enhancedImagePolicy("1.2.840.10008.5.1.4.1.1.2.1");
+  return enhancedImagePolicy(
+    "1.2.840.10008.5.1.4.1.1.2.1",
+    enhancedCTImageModulePolicy()
+  );
 }
 
 function enhancedMRImagePolicy(): IPolicy {

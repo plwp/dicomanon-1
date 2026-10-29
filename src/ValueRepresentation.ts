@@ -32,6 +32,7 @@ export type EncapsulationErrorCode =
   | "ITEM_PAST_END"
   | "FRAGMENT_LENGTH_UNDEFINED"
   | "FRAGMENT_LENGTH_ODD"
+  | "FRAGMENT_LENGTH_ZERO"
   | "FRAGMENT_TOO_LONG"
   | "OFFSET_TOO_LARGE"
   | "DELIMITER_MISSING"
@@ -363,8 +364,10 @@ export class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
   /**
    * The Basic Offset Table to write for these fragment lengths (PS3.5 A.4).
    * Offsets count from the first fragment item, each item taking 8 + length
-   * bytes, so a valid table starts at 0, strictly increases and names only
-   * fragment item boundaries. A table that does not match would leave frames
+   * bytes, so a valid table starts at 0 ("the first entry will always be
+   * 00000000H") and names only fragment item boundaries. That it strictly
+   * increases is inferred from each offset naming the start of a successive
+   * frame's first fragment; A.4 has no sentence saying so. A table that does not match would leave frames
    * 2..N unlocatable in a viewer, so: an empty table stays empty; a valid one
    * is kept; a mismatched one is rebuilt when it has one entry per fragment
    * (one fragment per frame, the only layout it can describe); otherwise the
@@ -408,8 +411,12 @@ export class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
   ): number {
     if (isEncapsulated) {
       // Re-emit the fragments exactly as read: fragment boundaries carry
-      // meaning (one fragment per frame when the table is empty; an RLE frame
-      // may not be split), so never re-fragment.
+      // meaning, so never re-fragment. Whether a frame may span fragments is
+      // set per transfer syntax (PS3.5 A.4.1, A.4.3, A.4.4; RLE in A.4.2 and
+      // HTJ2K require exactly one fragment per frame). With an empty table a
+      // reader may compare fragment and frame counts (PS3.5 8.2) and must
+      // still handle frames split across fragments; re-cutting the
+      // fragments would change what that comparison finds.
       const lengths = value.map((fragment) => fragment.byteLength);
       for (const length of lengths) {
         if (length > MAX_FRAGMENT_LENGTH) {
@@ -424,6 +431,13 @@ export class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
           throw new EncapsulationError(
             "FRAGMENT_LENGTH_ODD",
             `Pixel data fragment of odd length ${length}`
+          );
+        }
+        if (length == 0) {
+          // PS3.5 A.4: "an even number of bytes greater or equal to two".
+          throw new EncapsulationError(
+            "FRAGMENT_LENGTH_ZERO",
+            "Pixel data fragment of length 0"
           );
         }
       }
@@ -527,6 +541,13 @@ export class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
           throw new EncapsulationError(
             "FRAGMENT_LENGTH_ODD",
             `Pixel data fragment of odd length ${fragmentLength}`
+          );
+        }
+        if (fragmentLength == 0) {
+          // PS3.5 A.4: "an even number of bytes greater or equal to two".
+          throw new EncapsulationError(
+            "FRAGMENT_LENGTH_ZERO",
+            "Pixel data fragment of length 0"
           );
         }
         if (fragmentLength > remaining()) {
