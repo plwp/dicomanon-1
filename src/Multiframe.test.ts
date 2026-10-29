@@ -862,11 +862,15 @@ describe("Functional groups: nested whitelist (PS3.15 Annex E Table E.1-1, PS3.3
     expect(shared["00189341"]).toBeUndefined();
   });
 
-  it("keeps the Real World Value Mapping numbers and units and removes its LUT Label and LUT Explanation (PS3.3 C.7.6.16.2.11)", () => {
+  it("keeps the Real World Value Mapping numbers and units and replaces its LUT Label and LUT Explanation (Type 1, PS3.3 C.7.6.16.2.11) with fixed values", () => {
     const dcm = DicomMessage.readFile(readFixture(name));
     const shared = (dcm.dict["52009229"].Value as Array<TagDict>)[0];
     const mappingIn = shared["00409096"].Value[0] as TagDict;
     mappingIn["00409212"] = { vr: "FD", Value: [0.5, 1.5, 2.5] }; // Real World Value LUT Data
+    const labelIn = "LEAKLUTLABEL";
+    const explanationIn = "LEAKLUTEXPLANATION";
+    mappingIn["00409210"] = { vr: "SH", Value: [labelIn] }; // LUT Label (Type 1, free text)
+    mappingIn["00283003"] = { vr: "LO", Value: [explanationIn] }; // LUT Explanation (Type 1, free text)
     const output = dcm.write(anonymize(dcm.dict));
     const reread = DicomMessage.readFile(output);
     const out = (reread.dict["52009229"].Value as Array<TagDict>)[0];
@@ -879,9 +883,34 @@ describe("Functional groups: nested whitelist (PS3.15 Annex E Table E.1-1, PS3.3
     const units = mapping["004008EA"].Value[0] as TagDict;
     expect(units["00080100"].Value).toEqual(["ml/100ml/s"]);
     expect(units["00080102"].Value).toEqual(["UCUM"]);
-    expect(mapping["00409210"]).toBeUndefined(); // LUT Label
-    expect(mapping["00283003"]).toBeUndefined(); // LUT Explanation
+    // LUT Label and LUT Explanation are Type 1 in the item: present, non-empty, and fixed.
+    const label = String(mapping["00409210"].Value[0]).trim();
+    const explanation = String(mapping["00283003"].Value[0]).trim();
+    expect(label).toBe("RWVM");
+    expect(explanation).toBe("Real world value mapping");
+    for (const input of [labelIn, explanationIn]) {
+      expect(label).not.toContain(input);
+      expect(explanation).not.toContain(input);
+      expect(Buffer.from(output).indexOf(input)).toBe(-1);
+    }
     expect(Buffer.from(output).indexOf("Regional Cerebral Blood Flow")).toBe(-1);
+  });
+
+  it("keeps the Double Float Real World Value First/Last Value Mapped (0040,9214)/(0040,9213), the floating-point alternatives to (0040,9216)/(0040,9211)", () => {
+    const dcm = DicomMessage.readFile(readFixture(name));
+    const shared = (dcm.dict["52009229"].Value as Array<TagDict>)[0];
+    const mappingIn = shared["00409096"].Value[0] as TagDict;
+    delete mappingIn["00409216"];
+    delete mappingIn["00409211"];
+    mappingIn["00409214"] = { vr: "FD", Value: [-0.25] }; // Double Float Real World Value First Value Mapped
+    mappingIn["00409213"] = { vr: "FD", Value: [1.75] }; // Double Float Real World Value Last Value Mapped
+    const reread = DicomMessage.readFile(dcm.write(anonymize(dcm.dict)));
+    const out = (reread.dict["52009229"].Value as Array<TagDict>)[0];
+    const mapping = out["00409096"].Value[0] as TagDict;
+    expect(mapping["00409214"].Value).toEqual([-0.25]);
+    expect(mapping["00409213"].Value).toEqual([1.75]);
+    expect(mapping["00409224"].Value).toEqual([-1024]); // Intercept and Slope still apply over that range
+    expect(mapping["00409225"].Value).toEqual([1]);
   });
 
   it("keeps Long Code Value (0008,0119) and URN Code Value (0008,0120), the Type 1C alternatives to Code Value (PS3.3 8.8)", () => {
