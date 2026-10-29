@@ -74,7 +74,8 @@ export default class Tag {
     stream: WriteBufferStream,
     vrType: string,
     values: TagValueEntry | Array<TagValueEntry>,
-    syntax: string
+    syntax: string,
+    basicOffsetTable?: Array<number>
   ): number {
     var vr = ValueRepresentation.createByTypeString(vrType),
       useSyntax = DicomMessage._normalizeSyntax(syntax);
@@ -98,7 +99,13 @@ export default class Tag {
     tagStream.setEndian(isLittleEndian);
 
     if (vrType == "OW" || vrType == "OB") {
-      valueLength = vr.writeBytes(tagStream, values, useSyntax, isEncapsulated);
+      valueLength = vr.writeBytes(
+        tagStream,
+        values,
+        useSyntax,
+        isEncapsulated,
+        basicOffsetTable
+      );
     } else {
       valueLength = vr.writeBytes(tagStream, values, useSyntax);
     }

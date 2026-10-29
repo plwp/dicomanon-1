@@ -1,8 +1,4 @@
-import {
-  WriteBufferStream,
-  ReadBufferStream,
-  BufferStream,
-} from "./BufferStream";
+import { ReadBufferStream, BufferStream } from "./BufferStream";
 import DicomMessage, {
   NormalizedSyntax,
   TagDict,
@@ -207,7 +203,8 @@ export default abstract class ValueRepresentation<Value extends TagValueEntry> {
     stream: BufferStream,
     value: Value | Array<Value>,
     syntax: NormalizedSyntax,
-    isEncapsulated?: boolean
+    isEncapsulated?: boolean,
+    basicOffsetTable?: Array<number>
   ): number;
 
   writeByteLengths(
@@ -324,57 +321,46 @@ export class StringRepresentation extends ValueRepresentation<string> {
 }
 
 export class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
+  /**
+   * Basic Offset Table read from encapsulated pixel data (PS3.5 A.4): one
+   * byte offset per frame, or [] when the file carried an empty table.
+   * Set by readBytes; DicomMessage.read copies it onto the TagValue.
+   */
+  basicOffsetTable: Array<number> | undefined;
+
   writeBytes(
     stream: BufferStream,
     value: Array<ArrayBuffer>,
     syntax: NormalizedSyntax,
-    isEncapsulated: boolean
+    isEncapsulated: boolean,
+    basicOffsetTable?: Array<number>
   ): number {
     if (isEncapsulated) {
-      var fragmentSize = 1024 * 20,
-        frames = value.length;
-      let startOffset: Array<number> = [];
-
-      var binaryStream: BufferStream = new WriteBufferStream(
-        1024 * 1024 * 20,
-        stream.isLittleEndian
-      );
-      for (var i = 0; i < frames; i++) {
-        startOffset.push(binaryStream.size);
-        var frameBuffer = value[i],
-          frameStream = new ReadBufferStream(frameBuffer),
-          fragmentsLength = Math.ceil(frameStream.size / fragmentSize);
-        for (var j = 0, fragmentStart = 0; j < fragmentsLength; j++) {
-          var fragmentEnd = fragmentStart + fragmentSize;
-          if (j == fragmentsLength - 1) {
-            fragmentEnd = frameStream.size;
-          }
-          var fragStream = new ReadBufferStream(
-            frameStream.getBuffer(fragmentStart, fragmentEnd)
-          );
-          fragmentStart = fragmentEnd;
-          binaryStream.writeUint16(0xfffe);
-          binaryStream.writeUint16(0xe000);
-          binaryStream.writeUint32(fragStream.size);
-          binaryStream.concat(fragStream);
+      // Re-emit the fragments and the Basic Offset Table exactly as read.
+      // Fragment boundaries carry meaning (one fragment per frame when the
+      // table is empty; an RLE frame may not be split), so never re-fragment.
+      const offsets = basicOffsetTable || [];
+      stream.writeUint16(0xfffe);
+      stream.writeUint16(0xe000);
+      stream.writeUint32(offsets.length * 4);
+      for (const offset of offsets) {
+        stream.writeUint32(offset);
+      }
+      for (const fragment of value) {
+        const fragStream = new ReadBufferStream(fragment);
+        const padded =
+          fragStream.size & 1 ? fragStream.size + 1 : fragStream.size;
+        stream.writeUint16(0xfffe);
+        stream.writeUint16(0xe000);
+        stream.writeUint32(padded);
+        stream.concat(fragStream);
+        if (padded != fragStream.size) {
+          stream.writeHex(this.padByte);
         }
       }
       stream.writeUint16(0xfffe);
-      stream.writeUint16(0xe000);
-      stream.writeUint32(startOffset.length * 4);
-      for (var i = 0; i < startOffset.length; i++) {
-        stream.writeUint32(startOffset[i]);
-      }
-      stream.concat(binaryStream);
-      stream.writeUint16(0xfffe);
       stream.writeUint16(0xe0dd);
       stream.writeUint32(0x0);
-      var written = 8 + binaryStream.size + startOffset.length * 4 + 8;
-
-      if (written & 1) {
-        stream.writeHex(this.padByte);
-        written++;
-      }
       return 0xffffffff;
     } else {
       var binaryData = value[0],
@@ -390,73 +376,36 @@ export class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
     _syntax: NormalizedSyntax
   ): Array<ArrayBuffer> {
     if (length == 0xffffffff) {
-      var itemTagValue = Tag.readTag(stream),
-        frames: Array<any> = [];
-      /**
-       * There are three special SQ related Data Elements that are not ruled by the VR encoding rules conveyed
-       * by the Transfer Syntax. They shall be encoded as Implicit VR. These special Data Elements are Item (FFFE,E000),
-       * Item Delimitation Item (FFFE,E00D), and Sequence Delimitation Item (FFFE,E0DD).
-       * However, the Data Set within the Value Field of the Data Element Item (FFFE,E000) shall be encoded according
-       * to the rules conveyed by the Transfer Syntax.
-       *
-       * ^^^ Not sure what this means but here we are handling FFFE E000
-       */
-      if (itemTagValue.is(0xfffee000)) {
-        var itemLength = stream.readUint32(),
-          numOfFrames = 1,
-          offsets: Array<number> = [];
-        if (itemLength > 0x0) {
-          // There are frames (commonly the item length is 4 for a single frame?)
-          numOfFrames = itemLength / 4;
-          var i = 0;
-          while (i++ < numOfFrames) {
-            const offset = stream.readUint32();
-            offsets.push(offset);
-          }
-        } else {
-          offsets = [0];
-        }
-        // At this point I'm assuming offsets start at zero for single frames (through either method).
-        var nextTag = Tag.readTag(stream),
-          fragmentStream: any = null,
-          start = 4,
-          frameOffset = offsets.shift();
-        // Alright, so that means we have a bunch of binary data, encapsulated in a (FFFE,E000) tag.
-        // I think I get it...
-        while (nextTag.is(0xfffee000)) {
-          // I guess this is for starting a new frame?
-          if (frameOffset == start) {
-            frameOffset = offsets.shift();
-            if (fragmentStream !== null) {
-              frames.push(fragmentStream.buffer);
-              fragmentStream = null;
-            }
-          }
-          var frameItemLength = stream.readUint32(),
-            thisStream = stream.more(frameItemLength);
-          // Set the fragment stream to this stream on the first try
-          if (fragmentStream === null) {
-            fragmentStream = thisStream;
-            // FIX! This offset wasn't being set causing us to overwrite the first fragment.
-            fragmentStream.offset = thisStream.size;
-          } else {
-            // For each encapsulted fragment, add it.
-            fragmentStream.concat(thisStream);
-          }
-          nextTag = Tag.readTag(stream);
-          start += 4 + frameItemLength;
-        }
-        // Then we seem to add the whole stream in as a fragment?
-        if (fragmentStream !== null) {
-          frames.push(fragmentStream.buffer);
-        }
-        // Not sure why we need to read off an extra 32 bits?
-        stream.readUint32();
-      } else {
+      // Encapsulated pixel data (PS3.5 A.4): a Basic Offset Table item, then
+      // one item per fragment, then a Sequence Delimitation Item. Items are
+      // always implicit VR little endian regardless of the transfer syntax.
+      const itemTagValue = Tag.readTag(stream);
+      if (!itemTagValue.is(0xfffee000)) {
         throw new Error("Item tag not found after undefined binary length");
       }
-      // Send back the frames.
-      return frames;
+      const tableLength = stream.readUint32();
+      const offsets: Array<number> = [];
+      for (let i = 0; i < tableLength / 4; i++) {
+        offsets.push(stream.readUint32());
+      }
+      // Keep every fragment as its own exact-length buffer. Frame boundaries
+      // are a property of the table + fragment list, resolved by the caller
+      // (see framesOf in src/Multiframe.test.ts), not of this reader.
+      const fragments: Array<ArrayBuffer> = [];
+      let nextTag = Tag.readTag(stream);
+      while (nextTag.is(0xfffee000)) {
+        const fragmentLength = stream.readUint32();
+        fragments.push(stream.more(fragmentLength).buffer);
+        nextTag = Tag.readTag(stream);
+      }
+      if (!nextTag.is(0xfffee0dd)) {
+        throw new Error(
+          "Sequence Delimitation Item not found after pixel data fragments"
+        );
+      }
+      stream.readUint32(); // the delimiter's (zero) length
+      this.basicOffsetTable = offsets;
+      return fragments;
     } else {
       var bytes;
       /*if (this.type == 'OW') {

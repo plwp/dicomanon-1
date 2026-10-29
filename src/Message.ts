@@ -3,7 +3,10 @@ import {
   ReadBufferStream,
   BufferStream,
 } from "./BufferStream";
-import ValueRepresentation, { tagFromNumbers } from "./ValueRepresentation";
+import ValueRepresentation, {
+  BinaryRepresentation,
+  tagFromNumbers,
+} from "./ValueRepresentation";
 import Tag from "./Tag";
 import DicomMetaDictionary from "./MetaDictionary";
 
@@ -93,6 +96,12 @@ export type TagValueEntry = string | ArrayBuffer | number | TagDict;
 export type TagValue = {
   vr: string;
   Value: Array<TagValueEntry>;
+  /**
+   * Encapsulated pixel data only: the Basic Offset Table as read, one byte
+   * offset per frame, or [] for an empty table. Value then holds one
+   * ArrayBuffer per fragment, in file order.
+   */
+  basicOffsetTable?: Array<number>;
 };
 
 export default class DicomMessage {
@@ -105,10 +114,14 @@ export default class DicomMessage {
     while (!bufferStream.end()) {
       var readInfo = DicomMessage.readTag(bufferStream, syntax);
 
-      dict[readInfo.tag.toCleanString()] = {
+      const entry: TagValue = {
         vr: readInfo.vr.type,
         Value: readInfo.values,
       };
+      if (readInfo.vr instanceof BinaryRepresentation && readInfo.vr.basicOffsetTable) {
+        entry.basicOffsetTable = readInfo.vr.basicOffsetTable;
+      }
+      dict[readInfo.tag.toCleanString()] = entry;
     }
     return dict;
   }
@@ -215,7 +228,13 @@ export default class DicomMessage {
         vrType = tagObject.vr,
         values = tagObject.Value;
 
-      written += tag.write(useStream, vrType, values, syntax);
+      written += tag.write(
+        useStream,
+        vrType,
+        values,
+        syntax,
+        tagObject.basicOffsetTable
+      );
     });
 
     return written;

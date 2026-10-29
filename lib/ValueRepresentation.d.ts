@@ -33,7 +33,7 @@ export default abstract class ValueRepresentation<Value extends TagValueEntry> {
     write(stream: BufferStream, type: "Double", ...valueArgs: Array<number>): Array<number>;
     write(stream: BufferStream, type: "String", ...valueArgs: Array<string>): Array<number>;
     write(stream: BufferStream, type: "Hex", ...valueArgs: Array<string>): Array<number>;
-    abstract writeBytes(stream: BufferStream, value: Value | Array<Value>, syntax: NormalizedSyntax, isEncapsulated?: boolean): number;
+    abstract writeBytes(stream: BufferStream, value: Value | Array<Value>, syntax: NormalizedSyntax, isEncapsulated?: boolean, basicOffsetTable?: Array<number>): number;
     writeByteLengths(stream: BufferStream, value: Value | Array<Value>, lengths: Array<number>, isEncapsulated?: boolean): number;
     static createByTypeString(type: string): ValueRepresentation<TagValueEntry>;
 }
@@ -42,7 +42,13 @@ export declare class StringRepresentation extends ValueRepresentation<string> {
     writeBytes(stream: BufferStream, value: string, syntax: NormalizedSyntax, isEncapsulated: boolean): number;
 }
 export declare class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
-    writeBytes(stream: BufferStream, value: Array<ArrayBuffer>, syntax: NormalizedSyntax, isEncapsulated: boolean): number;
+    /**
+     * Basic Offset Table read from encapsulated pixel data (PS3.5 A.4): one
+     * byte offset per frame, or [] when the file carried an empty table.
+     * Set by readBytes; DicomMessage.read copies it onto the TagValue.
+     */
+    basicOffsetTable: Array<number> | undefined;
+    writeBytes(stream: BufferStream, value: Array<ArrayBuffer>, syntax: NormalizedSyntax, isEncapsulated: boolean, basicOffsetTable?: Array<number>): number;
     readBytes(stream: BufferStream, length: number, _syntax: NormalizedSyntax): Array<ArrayBuffer>;
 }
 export declare class ApplicationEntity extends StringRepresentation {
