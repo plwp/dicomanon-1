@@ -57,6 +57,11 @@ export class DicomDict {
       this.dict[tag].Value = values;
       // A Basic Offset Table describes the fragments it was read with.
       delete this.dict[tag].basicOffsetTable;
+      if (tag == "7FE00010") {
+        // So does an Extended Offset Table (PS3.3 C.7.6.3).
+        delete this.dict["7FE00001"];
+        delete this.dict["7FE00002"];
+      }
     } else {
       this.dict[tag] = { vr: vr, Value: values };
     }

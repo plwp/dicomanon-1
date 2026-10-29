@@ -630,11 +630,26 @@ function enhancedGeneralEquipmentModulePolicy(): IPolicy {
       Position (0018,9236), Respiratory Cycle Position (0018,9214). These are
       frame indices and relative timing, not dates.
     Frame Anatomy Sequence (0020,9071) > Frame Laterality (0020,9072),
-      Anatomic Region Sequence (0008,2218) > Code Value (0008,0100), Coding
-      Scheme Designator (0008,0102), Coding Scheme Version (0008,0103), Code
+      Anatomic Region Sequence (0008,2218) > Code Value (0008,0100), Long
+      Code Value (0008,0119), URN Code Value (0008,0120), Coding Scheme
+      Designator (0008,0102), Coding Scheme Version (0008,0103), Code
       Meaning (0008,0104). Coded anatomy, the same information as Body Part
       Examined (0018,0015) which the policy already keeps; the macro is
-      Mandatory in all three IODs.
+      Mandatory in all three IODs. Long and URN Code Value are the Type 1C
+      alternatives to Code Value (PS3.3 8.8).
+    Real World Value Mapping Sequence (0040,9096), PS3.3 C.7.6.16.2.11 >
+      Real World Value First Value Mapped (0040,9216), Last Value Mapped
+      (0040,9211), Intercept (0040,9224), Slope (0040,9225), LUT Data
+      (0040,9212), Measurement Units Code Sequence (0040,08EA) as a code.
+      The numeric mapping from stored pixels to quantities (e.g. perfusion
+      in ml/100ml/s), which Enhanced CT conditionally requires.
+
+  Kept empty (Type 2, so an empty value satisfies the IOD):
+    Derivation Image Sequence (0008,9124). Conditionally required for
+      derived Enhanced MR and XA frames (PS3.3 C.7.6.16.2.6) and Type 2, so
+      when present it is kept with no items. Its Source Image Sequence
+      (0008,2112, X/Z/U*) and Derivation Description (0008,2111, X) go with
+      the items.
 
   Hashed (Table E.1-1 action U, "replace with a non-zero length UID that is
   internally consistent"):
@@ -651,15 +666,11 @@ function enhancedGeneralEquipmentModulePolicy(): IPolicy {
 
   Removed:
     Frame Comments (0020,9158): Table E.1-1 action X.
-    Derivation Image Sequence (0008,9124): its Source Image Sequence
-      (0008,2112) is X/Z/U* ("X unless Z or U is required to maintain IOD
-      conformance"); the macro is User optional in these IODs, so X, and
-      Derivation Description (0008,2111) inside it is X.
     Frame Label (0020,9453), Window Center & Width Explanation (0028,1055),
-      Real World Value Mapping Sequence (0040,9096, carries LUT Explanation
-      and LUT Label): free text, not listed in Table E.1-1. The standard
-      leaves these to judgement, so the de-identifying option (remove) is
-      taken.
+      and in Real World Value Mapping, LUT Label (0040,9210) and LUT
+      Explanation (0028,3003): free text, not listed in Table E.1-1. The
+      standard leaves these to judgement, so the de-identifying option
+      (remove) is taken.
     Every other macro and attribute, by the whitelist default, including
     Contrast/Bolus Usage (0018,9341), whose agent numbers point into the
     top-level Contrast/Bolus Agent Sequence that this policy already removes.
@@ -674,6 +685,8 @@ function codeSequenceItemPolicy(): IPolicy {
   return {
     default: REMOVE_UNLISTED,
     "00080100": { action: "keep", description: "Code Value" },
+    "00080119": { action: "keep", description: "Long Code Value" },
+    "00080120": { action: "keep", description: "URN Code Value" },
     "00080102": { action: "keep", description: "Coding Scheme Designator" },
     "00080103": { action: "keep", description: "Coding Scheme Version" },
     "00080104": { action: "keep", description: "Code Meaning" },
@@ -816,10 +829,39 @@ function functionalGroupItemPolicy(): IPolicy {
         },
       },
     },
+    "00409096": {
+      action: "keep",
+      description: "Real World Value Mapping Sequence (PS3.3 C.7.6.16.2.11)",
+      items: {
+        default: REMOVE_UNLISTED,
+        "00409216": {
+          action: "keep",
+          description: "Real World Value First Value Mapped",
+        },
+        "00409211": {
+          action: "keep",
+          description: "Real World Value Last Value Mapped",
+        },
+        "00409224": { action: "keep", description: "Real World Value Intercept" },
+        "00409225": { action: "keep", description: "Real World Value Slope" },
+        "00409212": { action: "keep", description: "Real World Value LUT Data" },
+        "004008EA": {
+          action: "keep",
+          description: "Measurement Units Code Sequence",
+          items: codeSequenceItemPolicy(),
+        },
+        "00409210": { action: "remove", description: "LUT Label (free text)" },
+        "00283003": {
+          action: "remove",
+          description: "LUT Explanation (free text)",
+        },
+      },
+    },
     "00089124": {
-      action: "remove",
+      action: "replace",
+      value: [],
       description:
-        "Derivation Image Sequence (Source Image Sequence: PS3.15 Table E.1-1 X/Z/U*)",
+        "Derivation Image Sequence, kept empty (Type 2, PS3.3 C.7.6.16.2.6; Source Image Sequence is PS3.15 Table E.1-1 X/Z/U*)",
     },
   };
 }
@@ -1489,7 +1531,8 @@ function positronEmissionTomographyImagePolicy(): IPolicy {
  * Multi-frame Functional Groups Module is Mandatory in each; its nested
  * whitelist is documented at functionalGroupItemPolicy(). The Enhanced CT,
  * MR and XA Image Modules share the image attributes kept by
- * xRay3DImageModulePolicy().
+ * xRay3DImageModulePolicy(). These classes are not yet listed in
+ * supportedSOPClasses(): their acquisition macros are not reviewed.
  */
 function enhancedImagePolicy(classUID: string): IPolicy {
   return addPolicies(

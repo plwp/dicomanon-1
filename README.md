@@ -19,13 +19,10 @@ The application explicitly supports the following DICOM SOP Classes:
  * 1.2.840.10008.5.1.4.1.1.1.1 (Digital XRay)
  * 1.2.840.10008.5.1.4.1.1.1.2 (Digital Mammography XRay)
  * 1.2.840.10008.5.1.4.1.1.2 (CT Image)
- * 1.2.840.10008.5.1.4.1.1.2.1 (Enhanced CT Image)
  * 1.2.840.10008.5.1.4.1.1.6.1 (Ultrasound Image)
  * 1.2.840.10008.5.1.4.1.1.3.1 (Ultrasound Multiframe Image)
  * 1.2.840.10008.5.1.4.1.1.4 (MR Image)
- * 1.2.840.10008.5.1.4.1.1.4.1 (Enhanced MR Image)
  * 1.2.840.10008.5.1.4.1.1.12.1 (XRay Angiographic Image)
- * 1.2.840.10008.5.1.4.1.1.12.1.1 (Enhanced XA Image)
  * 1.2.840.10008.5.1.4.1.1.12.2 (XRay Radiofluoroscopic Image)
  * 1.2.840.10008.5.1.4.1.1.13.1.1 (XRay 3D Angiographic Image)
  * 1.2.840.10008.5.1.4.1.1.20 (Nuclear Medicine Image)
@@ -350,11 +347,11 @@ The following 241 tags are retained because they are technical imaging/acquisiti
 
 ### Inside kept sequences
 
-Kept sequences are cleaned item by item with their own whitelist: anything not listed here is removed from each item. These 106 rules apply inside the multi-frame functional groups; the reasons, with PS3.15 Table E.1-1 citations, are in `src/Policies.ts`.
+Kept sequences are cleaned item by item with their own whitelist: anything not listed here is removed from each item. These 140 rules apply inside the multi-frame functional groups; the reasons, with PS3.15 Table E.1-1 citations, are in `src/Policies.ts`.
 
 | Path | Action | Description |
 | --- | --- | --- |
-| `(5200,9229)` > `(0008,9124)` | remove | Derivation Image Sequence |
+| `(5200,9229)` > `(0008,9124)` | replace | Derivation Image Sequence |
 | `(5200,9229)` > `(0018,9226)` | keep | MR Image Frame Type Sequence |
 | `(5200,9229)` > `(0018,9226)` > `(0008,9007)` | keep | Frame Type |
 | `(5200,9229)` > `(0018,9226)` > `(0008,9205)` | keep | Pixel Presentation |
@@ -377,6 +374,8 @@ Kept sequences are cleaned item by item with their own whitelist: anything not l
 | `(5200,9229)` > `(0020,9071)` > `(0008,2218)` > `(0008,0102)` | keep | Coding Scheme Designator |
 | `(5200,9229)` > `(0020,9071)` > `(0008,2218)` > `(0008,0103)` | keep | Coding Scheme Version |
 | `(5200,9229)` > `(0020,9071)` > `(0008,2218)` > `(0008,0104)` | keep | Code Meaning |
+| `(5200,9229)` > `(0020,9071)` > `(0008,2218)` > `(0008,0119)` | keep | Long Code Value |
+| `(5200,9229)` > `(0020,9071)` > `(0008,2218)` > `(0008,0120)` | keep | URN Code Value |
 | `(5200,9229)` > `(0020,9071)` > `(0020,9072)` | keep | Frame Laterality |
 | `(5200,9229)` > `(0020,9111)` | keep | Frame Content Sequence |
 | `(5200,9229)` > `(0020,9111)` > `(0018,9074)` | replace | Frame Acquisition DateTime |
@@ -407,7 +406,22 @@ Kept sequences are cleaned item by item with their own whitelist: anything not l
 | `(5200,9229)` > `(0028,9145)` > `(0028,1052)` | keep | Rescale Intercept |
 | `(5200,9229)` > `(0028,9145)` > `(0028,1053)` | keep | Rescale Slope |
 | `(5200,9229)` > `(0028,9145)` > `(0028,1054)` | keep | Rescale Type |
-| `(5200,9230)` > `(0008,9124)` | remove | Derivation Image Sequence |
+| `(5200,9229)` > `(0040,9096)` | keep | Real World Value Mapping Sequence |
+| `(5200,9229)` > `(0040,9096)` > `(0028,3003)` | remove | LUT Explanation |
+| `(5200,9229)` > `(0040,9096)` > `(0040,08EA)` | keep | Measurement Units Code Sequence |
+| `(5200,9229)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0100)` | keep | Code Value |
+| `(5200,9229)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0102)` | keep | Coding Scheme Designator |
+| `(5200,9229)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0103)` | keep | Coding Scheme Version |
+| `(5200,9229)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0104)` | keep | Code Meaning |
+| `(5200,9229)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0119)` | keep | Long Code Value |
+| `(5200,9229)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0120)` | keep | URN Code Value |
+| `(5200,9229)` > `(0040,9096)` > `(0040,9210)` | remove | LUT Label |
+| `(5200,9229)` > `(0040,9096)` > `(0040,9211)` | keep | Real World Value Last Value Mapped |
+| `(5200,9229)` > `(0040,9096)` > `(0040,9212)` | keep | Real World Value LUT Data |
+| `(5200,9229)` > `(0040,9096)` > `(0040,9216)` | keep | Real World Value First Value Mapped |
+| `(5200,9229)` > `(0040,9096)` > `(0040,9224)` | keep | Real World Value Intercept |
+| `(5200,9229)` > `(0040,9096)` > `(0040,9225)` | keep | Real World Value Slope |
+| `(5200,9230)` > `(0008,9124)` | replace | Derivation Image Sequence |
 | `(5200,9230)` > `(0018,9226)` | keep | MR Image Frame Type Sequence |
 | `(5200,9230)` > `(0018,9226)` > `(0008,9007)` | keep | Frame Type |
 | `(5200,9230)` > `(0018,9226)` > `(0008,9205)` | keep | Pixel Presentation |
@@ -430,6 +444,8 @@ Kept sequences are cleaned item by item with their own whitelist: anything not l
 | `(5200,9230)` > `(0020,9071)` > `(0008,2218)` > `(0008,0102)` | keep | Coding Scheme Designator |
 | `(5200,9230)` > `(0020,9071)` > `(0008,2218)` > `(0008,0103)` | keep | Coding Scheme Version |
 | `(5200,9230)` > `(0020,9071)` > `(0008,2218)` > `(0008,0104)` | keep | Code Meaning |
+| `(5200,9230)` > `(0020,9071)` > `(0008,2218)` > `(0008,0119)` | keep | Long Code Value |
+| `(5200,9230)` > `(0020,9071)` > `(0008,2218)` > `(0008,0120)` | keep | URN Code Value |
 | `(5200,9230)` > `(0020,9071)` > `(0020,9072)` | keep | Frame Laterality |
 | `(5200,9230)` > `(0020,9111)` | keep | Frame Content Sequence |
 | `(5200,9230)` > `(0020,9111)` > `(0018,9074)` | replace | Frame Acquisition DateTime |
@@ -460,6 +476,21 @@ Kept sequences are cleaned item by item with their own whitelist: anything not l
 | `(5200,9230)` > `(0028,9145)` > `(0028,1052)` | keep | Rescale Intercept |
 | `(5200,9230)` > `(0028,9145)` > `(0028,1053)` | keep | Rescale Slope |
 | `(5200,9230)` > `(0028,9145)` > `(0028,1054)` | keep | Rescale Type |
+| `(5200,9230)` > `(0040,9096)` | keep | Real World Value Mapping Sequence |
+| `(5200,9230)` > `(0040,9096)` > `(0028,3003)` | remove | LUT Explanation |
+| `(5200,9230)` > `(0040,9096)` > `(0040,08EA)` | keep | Measurement Units Code Sequence |
+| `(5200,9230)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0100)` | keep | Code Value |
+| `(5200,9230)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0102)` | keep | Coding Scheme Designator |
+| `(5200,9230)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0103)` | keep | Coding Scheme Version |
+| `(5200,9230)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0104)` | keep | Code Meaning |
+| `(5200,9230)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0119)` | keep | Long Code Value |
+| `(5200,9230)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0120)` | keep | URN Code Value |
+| `(5200,9230)` > `(0040,9096)` > `(0040,9210)` | remove | LUT Label |
+| `(5200,9230)` > `(0040,9096)` > `(0040,9211)` | keep | Real World Value Last Value Mapped |
+| `(5200,9230)` > `(0040,9096)` > `(0040,9212)` | keep | Real World Value LUT Data |
+| `(5200,9230)` > `(0040,9096)` > `(0040,9216)` | keep | Real World Value First Value Mapped |
+| `(5200,9230)` > `(0040,9096)` > `(0040,9224)` | keep | Real World Value Intercept |
+| `(5200,9230)` > `(0040,9096)` > `(0040,9225)` | keep | Real World Value Slope |
 
 <!-- END GENERATED POLICY TABLES -->
 

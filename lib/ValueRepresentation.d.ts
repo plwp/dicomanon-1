@@ -2,7 +2,7 @@ import { BufferStream } from "./BufferStream";
 import { NormalizedSyntax, TagDict, TagValueEntry } from "./Message";
 import Tag from "./Tag";
 export declare function tagFromNumbers(group: number, element: number): Tag;
-export type EncapsulationErrorCode = "ITEM_TAG_MISSING" | "OFFSET_TABLE_LENGTH" | "ITEM_PAST_END" | "FRAGMENT_LENGTH_UNDEFINED" | "FRAGMENT_LENGTH_ODD" | "FRAGMENT_TOO_LONG" | "DELIMITER_MISSING" | "DELIMITER_LENGTH" | "OFFSET_TABLE_MISMATCH";
+export type EncapsulationErrorCode = "ITEM_TAG_MISSING" | "OFFSET_TABLE_LENGTH" | "ITEM_PAST_END" | "FRAGMENT_LENGTH_UNDEFINED" | "FRAGMENT_LENGTH_ODD" | "FRAGMENT_TOO_LONG" | "OFFSET_TOO_LARGE" | "DELIMITER_MISSING" | "DELIMITER_LENGTH" | "OFFSET_TABLE_MISMATCH";
 /**
  * Encapsulated Pixel Data (PS3.5 A.4) that cannot be read or written
  * correctly. Thrown instead of guessing, because a wrong guess leaves a file

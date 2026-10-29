@@ -33,6 +33,7 @@ export type EncapsulationErrorCode =
   | "FRAGMENT_LENGTH_UNDEFINED"
   | "FRAGMENT_LENGTH_ODD"
   | "FRAGMENT_TOO_LONG"
+  | "OFFSET_TOO_LARGE"
   | "DELIMITER_MISSING"
   | "DELIMITER_LENGTH"
   | "OFFSET_TABLE_MISMATCH";
@@ -53,6 +54,8 @@ export class EncapsulationError extends Error {
 
 /** Largest even 32-bit item length; FFFFFFFF means "undefined length". */
 const MAX_FRAGMENT_LENGTH = 0xfffffffe;
+/** Basic Offset Table entries are 32-bit (PS3.5 A.4). */
+const MAX_OFFSET = 0xffffffff;
 export type WriteType =
   | "Uint8"
   | "Int8"
@@ -392,9 +395,7 @@ export class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
     }
     throw new EncapsulationError(
       "OFFSET_TABLE_MISMATCH",
-      `Basic Offset Table [${table.slice(0, 8).join(", ")}${
-        table.length > 8 ? ", ..." : ""
-      }] does not match ${lengths.length} pixel data fragments`
+      `Basic Offset Table with ${table.length} entries does not match ${lengths.length} pixel data fragments`
     );
   }
 
@@ -430,6 +431,12 @@ export class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
         basicOffsetTable || [],
         lengths
       );
+      if (offsets.some((offset) => offset > MAX_OFFSET)) {
+        throw new EncapsulationError(
+          "OFFSET_TOO_LARGE",
+          "Basic Offset Table entry exceeds the 32-bit offset limit"
+        );
+      }
       stream.writeUint16(0xfffe);
       stream.writeUint16(0xe000);
       stream.writeUint32(offsets.length * 4);
@@ -465,6 +472,12 @@ export class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
       // one item per fragment, then a Sequence Delimitation Item. Items are
       // always implicit VR little endian regardless of the transfer syntax.
       const remaining = () => stream.buffer.byteLength - stream.offset;
+      if (remaining() < 8) {
+        throw new EncapsulationError(
+          "ITEM_PAST_END",
+          "Pixel data ends inside the Basic Offset Table item header"
+        );
+      }
       const itemTagValue = Tag.readTag(stream);
       if (!itemTagValue.is(0xfffee000)) {
         throw new EncapsulationError(

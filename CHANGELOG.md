@@ -36,14 +36,23 @@
 - Files carrying an Extended Offset Table (7FE0,0001)/(7FE0,0002), VR OV,
   are read (they failed with "Invalid vr type OV") and both attributes are
   kept: they are structural and not listed in PS3.15 Table E.1-1.
-- Enhanced CT, Enhanced MR and Enhanced XA Image are supported SOP classes,
-  and every multi-frame file keeps its Shared (5200,9229) and Per-frame
+- Every multi-frame file keeps its Shared (5200,9229) and Per-frame
   (5200,9230) Functional Groups Sequences, which PS3.3 C.7.6.16 makes Type 1
-  and Type 1C. Their items are cleaned with a nested whitelist: frame
-  geometry, pixel measures, window, rescale, frame type, frame indices and
-  coded anatomy are kept; Irradiation Event UID is hashed (Table E.1-1: U);
-  Frame Acquisition and Frame Reference DateTime are replaced with
-  19700101000000.000000 (Table E.1-1: D); Frame Comments (X), derivation
-  references (X/Z/U*) and free-text labels are removed. The full reasoning,
+  and Type 1C, and Enhanced CT, MR and XA files get a class policy. Their
+  items are cleaned with a nested whitelist: frame geometry, pixel measures,
+  window, rescale, Real World Value Mapping numbers and units, frame type,
+  frame indices and coded anatomy are kept; Irradiation Event UID is hashed
+  (Table E.1-1: U); Frame Acquisition and Frame Reference DateTime are
+  replaced with 19700101000000.000000 (Table E.1-1: D); Derivation Image
+  Sequence is kept empty (Type 2); Frame Comments (X), derivation references
+  (X/Z/U*) and free-text labels are removed. The full reasoning,
   attribute by attribute, is in `src/Policies.ts` above
   `functionalGroupItemPolicy()`; the README lists every nested rule.
+- `DicomDict.upsertTag` on Pixel Data also drops a stale Extended Offset
+  Table and its Lengths; a Basic Offset Table entry beyond 32 bits is
+  refused (`OFFSET_TOO_LARGE`).
+
+### Not yet
+
+- Enhanced CT, MR and XA are not listed in `supportedSOPClasses()`: full
+  conformance for them needs their acquisition macros reviewed.
