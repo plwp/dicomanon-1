@@ -86,7 +86,10 @@ export default class Tag {
         useSyntax == EXPLICIT_LITTLE_ENDIAN
           ? true
           : false,
-      isEncapsulated = DicomMessage.isEncapsulated(syntax);
+      // PS3.5 A.4: only Pixel Data is encapsulated; every other OB/OW element
+      // keeps its defined length under a compressed transfer syntax.
+      isEncapsulated =
+        this.isPixelDataTag() && DicomMessage.isEncapsulated(syntax);
 
     var oldEndian = stream.isLittleEndian;
     stream.setEndian(isLittleEndian);

@@ -2,6 +2,16 @@ import { BufferStream } from "./BufferStream";
 import { NormalizedSyntax, TagDict, TagValueEntry } from "./Message";
 import Tag from "./Tag";
 export declare function tagFromNumbers(group: number, element: number): Tag;
+export type EncapsulationErrorCode = "ITEM_TAG_MISSING" | "OFFSET_TABLE_LENGTH" | "ITEM_PAST_END" | "FRAGMENT_LENGTH_UNDEFINED" | "FRAGMENT_LENGTH_ODD" | "FRAGMENT_TOO_LONG" | "DELIMITER_MISSING" | "DELIMITER_LENGTH" | "OFFSET_TABLE_MISMATCH";
+/**
+ * Encapsulated Pixel Data (PS3.5 A.4) that cannot be read or written
+ * correctly. Thrown instead of guessing, because a wrong guess leaves a file
+ * whose frames after the first cannot be located by a viewer.
+ */
+export declare class EncapsulationError extends Error {
+    readonly code: EncapsulationErrorCode;
+    constructor(code: EncapsulationErrorCode, message: string);
+}
 export type WriteType = "Uint8" | "Int8" | "Uint16" | "Int16" | "Uint32" | "Int32" | "Float" | "Double" | "String" | "Hex";
 export default abstract class ValueRepresentation<Value extends TagValueEntry> {
     type: string;
@@ -48,6 +58,17 @@ export declare class BinaryRepresentation extends ValueRepresentation<ArrayBuffe
      * Set by readBytes; DicomMessage.read copies it onto the TagValue.
      */
     basicOffsetTable: Array<number> | undefined;
+    /**
+     * The Basic Offset Table to write for these fragment lengths (PS3.5 A.4).
+     * Offsets count from the first fragment item, each item taking 8 + length
+     * bytes, so a valid table starts at 0, strictly increases and names only
+     * fragment item boundaries. A table that does not match would leave frames
+     * 2..N unlocatable in a viewer, so: an empty table stays empty; a valid one
+     * is kept; a mismatched one is rebuilt when it has one entry per fragment
+     * (one fragment per frame, the only layout it can describe); otherwise the
+     * write is refused.
+     */
+    static offsetTableFor(table: Array<number>, lengths: Array<number>): Array<number>;
     writeBytes(stream: BufferStream, value: Array<ArrayBuffer>, syntax: NormalizedSyntax, isEncapsulated: boolean, basicOffsetTable?: Array<number>): number;
     readBytes(stream: BufferStream, length: number, _syntax: NormalizedSyntax): Array<ArrayBuffer>;
 }
@@ -181,6 +202,10 @@ export declare class UnknownValue extends StringRepresentation {
     readBytes(stream: BufferStream, length: number, _syntax: NormalizedSyntax): string;
 }
 export declare class OtherWordString extends BinaryRepresentation {
+    constructor();
+}
+/** OV (PS3.5 6.2): 64-bit words, e.g. the Extended Offset Table (7FE0,0001). */
+export declare class OtherVeryLongString extends BinaryRepresentation {
     constructor();
 }
 export declare class OtherByteString extends BinaryRepresentation {

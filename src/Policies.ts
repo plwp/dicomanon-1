@@ -357,6 +357,12 @@ function imagePixelModulePolicy(): IPolicy {
     "00280006": { action: "keep", description: "Planar Configuration" }, // Type 1C
     "00280034": { action: "keep", description: "Pixel Aspect Ratio" }, // Type 1C
     "7FE00010": { action: "keep", description: "Pixel Data" }, // We need this or we won't have an image
+    // Extended Offset Table and its Lengths (PS3.3 C.7.6.3, Type 3 / 1C):
+    // structural frame index for encapsulated Pixel Data, not listed in
+    // PS3.15 Table E.1-1. Kept so frames stay indexed; the writer re-emits
+    // fragments unchanged, so the offsets stay valid.
+    "7FE00001": { action: "keep", description: "Extended Offset Table" },
+    "7FE00002": { action: "keep", description: "Extended Offset Table Lengths" },
   };
 }
 

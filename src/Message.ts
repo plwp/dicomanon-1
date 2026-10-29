@@ -14,7 +14,7 @@ export const IMPLICIT_LITTLE_ENDIAN = "1.2.840.10008.1.2";
 export const EXPLICIT_LITTLE_ENDIAN = "1.2.840.10008.1.2.1";
 export const EXPLICIT_BIG_ENDIAN = "1.2.840.10008.1.2.2";
 
-const singleVRs = ["SQ", "OF", "OW", "OB", "UN"];
+const singleVRs = ["SQ", "OF", "OW", "OB", "OV", "UN"];
 const encapsulatedSyntaxes = [
   "1.2.840.10008.1.2.4.50",
   "1.2.840.10008.1.2.4.51",
@@ -55,6 +55,8 @@ export class DicomDict {
   ): void {
     if (this.dict[tag]) {
       this.dict[tag].Value = values;
+      // A Basic Offset Table describes the fragments it was read with.
+      delete this.dict[tag].basicOffsetTable;
     } else {
       this.dict[tag] = { vr: vr, Value: values };
     }
@@ -344,7 +346,7 @@ export default class DicomMessage {
         } else if (vr.type == "SQ") {
           // @ts-expect-error the type of `val` could be inferred from knowing the kind of VR but it doesn't propagate
           values = val;
-        } else if (vr.type == "OW" || vr.type == "OB") {
+        } else if (vr.type == "OW" || vr.type == "OB" || vr.type == "OV") {
           // @ts-expect-error the type of `val` could be inferred from knowing the kind of VR but it doesn't propagate
           values = val;
         } else {

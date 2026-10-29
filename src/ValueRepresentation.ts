@@ -23,8 +23,36 @@ function readTag(stream: BufferStream): Tag {
 }
 
 const binaryVRs = ["FL", "FD", "SL", "SS", "UL", "US", "AT"];
-const explicitVRList = ["OB", "OW", "OF", "SQ", "UC", "UR", "UT", "UN"];
-const singleVRs = ["SQ", "OF", "OW", "OB", "UN"];
+const explicitVRList = ["OB", "OW", "OF", "OV", "SQ", "UC", "UR", "UT", "UN"];
+const singleVRs = ["SQ", "OF", "OW", "OB", "OV", "UN"];
+
+export type EncapsulationErrorCode =
+  | "ITEM_TAG_MISSING"
+  | "OFFSET_TABLE_LENGTH"
+  | "ITEM_PAST_END"
+  | "FRAGMENT_LENGTH_UNDEFINED"
+  | "FRAGMENT_LENGTH_ODD"
+  | "FRAGMENT_TOO_LONG"
+  | "DELIMITER_MISSING"
+  | "DELIMITER_LENGTH"
+  | "OFFSET_TABLE_MISMATCH";
+
+/**
+ * Encapsulated Pixel Data (PS3.5 A.4) that cannot be read or written
+ * correctly. Thrown instead of guessing, because a wrong guess leaves a file
+ * whose frames after the first cannot be located by a viewer.
+ */
+export class EncapsulationError extends Error {
+  readonly code: EncapsulationErrorCode;
+  constructor(code: EncapsulationErrorCode, message: string) {
+    super(message);
+    this.name = "EncapsulationError";
+    this.code = code;
+  }
+}
+
+/** Largest even 32-bit item length; FFFFFFFF means "undefined length". */
+const MAX_FRAGMENT_LENGTH = 0xfffffffe;
 export type WriteType =
   | "Uint8"
   | "Int8"
@@ -279,6 +307,7 @@ export default abstract class ValueRepresentation<Value extends TagValueEntry> {
     // else if (type == "OD") vr = new OtherDoubleString();
     // else if (type == "OF") vr = new OtherFloatString();
     else if (type == "OW") vr = new OtherWordString();
+    else if (type == "OV") vr = new OtherVeryLongString();
     else if (type == "PN") vr = new PersonName();
     else if (type == "SH") vr = new ShortString();
     else if (type == "SL") vr = new SignedLong();
@@ -328,6 +357,47 @@ export class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
    */
   basicOffsetTable: Array<number> | undefined;
 
+  /**
+   * The Basic Offset Table to write for these fragment lengths (PS3.5 A.4).
+   * Offsets count from the first fragment item, each item taking 8 + length
+   * bytes, so a valid table starts at 0, strictly increases and names only
+   * fragment item boundaries. A table that does not match would leave frames
+   * 2..N unlocatable in a viewer, so: an empty table stays empty; a valid one
+   * is kept; a mismatched one is rebuilt when it has one entry per fragment
+   * (one fragment per frame, the only layout it can describe); otherwise the
+   * write is refused.
+   */
+  static offsetTableFor(
+    table: Array<number>,
+    lengths: Array<number>
+  ): Array<number> {
+    if (table.length == 0) {
+      return [];
+    }
+    const boundaries: Array<number> = [];
+    let position = 0;
+    for (const length of lengths) {
+      boundaries.push(position);
+      position += 8 + length;
+    }
+    const valid =
+      table[0] == 0 &&
+      table.every((offset, i) => i == 0 || offset > table[i - 1]) &&
+      table.every((offset) => boundaries.indexOf(offset) != -1);
+    if (valid) {
+      return table;
+    }
+    if (table.length == lengths.length) {
+      return boundaries;
+    }
+    throw new EncapsulationError(
+      "OFFSET_TABLE_MISMATCH",
+      `Basic Offset Table [${table.slice(0, 8).join(", ")}${
+        table.length > 8 ? ", ..." : ""
+      }] does not match ${lengths.length} pixel data fragments`
+    );
+  }
+
   writeBytes(
     stream: BufferStream,
     value: Array<ArrayBuffer>,
@@ -336,10 +406,30 @@ export class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
     basicOffsetTable?: Array<number>
   ): number {
     if (isEncapsulated) {
-      // Re-emit the fragments and the Basic Offset Table exactly as read.
-      // Fragment boundaries carry meaning (one fragment per frame when the
-      // table is empty; an RLE frame may not be split), so never re-fragment.
-      const offsets = basicOffsetTable || [];
+      // Re-emit the fragments exactly as read: fragment boundaries carry
+      // meaning (one fragment per frame when the table is empty; an RLE frame
+      // may not be split), so never re-fragment.
+      const lengths = value.map((fragment) => fragment.byteLength);
+      for (const length of lengths) {
+        if (length > MAX_FRAGMENT_LENGTH) {
+          throw new EncapsulationError(
+            "FRAGMENT_TOO_LONG",
+            `Pixel data fragment of ${length} bytes exceeds the 32-bit item length limit`
+          );
+        }
+        if (length & 1) {
+          // PS3.5 A.4: fragment items have even length. Padding here would
+          // shift every later fragment while the offset table stayed put.
+          throw new EncapsulationError(
+            "FRAGMENT_LENGTH_ODD",
+            `Pixel data fragment of odd length ${length}`
+          );
+        }
+      }
+      const offsets = BinaryRepresentation.offsetTableFor(
+        basicOffsetTable || [],
+        lengths
+      );
       stream.writeUint16(0xfffe);
       stream.writeUint16(0xe000);
       stream.writeUint32(offsets.length * 4);
@@ -348,15 +438,10 @@ export class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
       }
       for (const fragment of value) {
         const fragStream = new ReadBufferStream(fragment);
-        const padded =
-          fragStream.size & 1 ? fragStream.size + 1 : fragStream.size;
         stream.writeUint16(0xfffe);
         stream.writeUint16(0xe000);
-        stream.writeUint32(padded);
+        stream.writeUint32(fragStream.size);
         stream.concat(fragStream);
-        if (padded != fragStream.size) {
-          stream.writeHex(this.padByte);
-        }
       }
       stream.writeUint16(0xfffe);
       stream.writeUint16(0xe0dd);
@@ -379,31 +464,80 @@ export class BinaryRepresentation extends ValueRepresentation<ArrayBuffer> {
       // Encapsulated pixel data (PS3.5 A.4): a Basic Offset Table item, then
       // one item per fragment, then a Sequence Delimitation Item. Items are
       // always implicit VR little endian regardless of the transfer syntax.
+      const remaining = () => stream.buffer.byteLength - stream.offset;
       const itemTagValue = Tag.readTag(stream);
       if (!itemTagValue.is(0xfffee000)) {
-        throw new Error("Item tag not found after undefined binary length");
+        throw new EncapsulationError(
+          "ITEM_TAG_MISSING",
+          "Item tag not found after undefined binary length"
+        );
       }
       const tableLength = stream.readUint32();
+      if (tableLength % 4 != 0) {
+        throw new EncapsulationError(
+          "OFFSET_TABLE_LENGTH",
+          `Basic Offset Table length ${tableLength} is not a multiple of 4`
+        );
+      }
+      if (tableLength > remaining()) {
+        throw new EncapsulationError(
+          "ITEM_PAST_END",
+          `Basic Offset Table length ${tableLength} runs past the end of the data`
+        );
+      }
       const offsets: Array<number> = [];
       for (let i = 0; i < tableLength / 4; i++) {
         offsets.push(stream.readUint32());
       }
       // Keep every fragment as its own exact-length buffer. Frame boundaries
-      // are a property of the table + fragment list, resolved by the caller
-      // (see framesOf in src/Multiframe.test.ts), not of this reader.
+      // are a property of the table + fragment list, not of this reader.
       const fragments: Array<ArrayBuffer> = [];
-      let nextTag = Tag.readTag(stream);
+      const readNextTag = () => {
+        if (remaining() < 8) {
+          throw new EncapsulationError(
+            "DELIMITER_MISSING",
+            "Pixel data ends before the Sequence Delimitation Item"
+          );
+        }
+        return Tag.readTag(stream);
+      };
+      let nextTag = readNextTag();
       while (nextTag.is(0xfffee000)) {
         const fragmentLength = stream.readUint32();
+        if (fragmentLength == 0xffffffff) {
+          throw new EncapsulationError(
+            "FRAGMENT_LENGTH_UNDEFINED",
+            "Pixel data fragment has undefined length"
+          );
+        }
+        if (fragmentLength & 1) {
+          throw new EncapsulationError(
+            "FRAGMENT_LENGTH_ODD",
+            `Pixel data fragment of odd length ${fragmentLength}`
+          );
+        }
+        if (fragmentLength > remaining()) {
+          throw new EncapsulationError(
+            "ITEM_PAST_END",
+            `Pixel data fragment of ${fragmentLength} bytes runs past the end of the data`
+          );
+        }
         fragments.push(stream.more(fragmentLength).buffer);
-        nextTag = Tag.readTag(stream);
+        nextTag = readNextTag();
       }
       if (!nextTag.is(0xfffee0dd)) {
-        throw new Error(
+        throw new EncapsulationError(
+          "DELIMITER_MISSING",
           "Sequence Delimitation Item not found after pixel data fragments"
         );
       }
-      stream.readUint32(); // the delimiter's (zero) length
+      const delimiterLength = stream.readUint32();
+      if (delimiterLength != 0) {
+        throw new EncapsulationError(
+          "DELIMITER_LENGTH",
+          `Sequence Delimitation Item has length ${delimiterLength}, expected 0`
+        );
+      }
       this.basicOffsetTable = offsets;
       return fragments;
     } else {
@@ -1019,6 +1153,16 @@ export class UnknownValue extends StringRepresentation {
 export class OtherWordString extends BinaryRepresentation {
   constructor() {
     super("OW");
+    this.maxLength = undefined;
+    this.padByte = "00";
+    this.noMultiple = true;
+  }
+}
+
+/** OV (PS3.5 6.2): 64-bit words, e.g. the Extended Offset Table (7FE0,0001). */
+export class OtherVeryLongString extends BinaryRepresentation {
+  constructor() {
+    super("OV");
     this.maxLength = undefined;
     this.padByte = "00";
     this.noMultiple = true;
