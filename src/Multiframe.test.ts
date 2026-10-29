@@ -516,6 +516,16 @@ describe("Encapsulated Pixel Data reader rejects malformed encodings with a type
     expectEncapsulationError(() => DicomMessage.readFile(buf), "DELIMITER_LENGTH");
   });
 
+  it.each([0, 1, 2, 3, 4, 5, 6, 7])(
+    "rejects data that ends %i bytes into the Basic Offset Table item header",
+    (k) => {
+      const buf = withEncapsulated(name, { fragments: [100, 100], table: [0, 108] });
+      const at = pixelDataHeaderAt(new Uint8Array(buf));
+      const truncated = buf.slice(0, at + 12 + k);
+      expectEncapsulationError(() => DicomMessage.readFile(truncated), "ITEM_PAST_END");
+    }
+  );
+
   it("rejects undefined-length pixel data that does not start with an item", () => {
     const buf = withEncapsulated(name, { fragments: [100, 100], table: [0, 108] });
     const at = pixelDataHeaderAt(new Uint8Array(buf));
@@ -573,6 +583,38 @@ describe("Encapsulated Pixel Data writer checks the Basic Offset Table against t
     const dcm = DicomMessage.readFile(input);
     const anon = anonymize(dcm.dict);
     expectEncapsulationError(() => dcm.write(anon), "OFFSET_TABLE_MISMATCH");
+  });
+
+  it("reports counts only when it refuses a table, never the table entries", () => {
+    const text = Array.from(Buffer.from("JOHN DOE 1970-01-01 MRN 1234567\0"));
+    const input = withEncapsulated(name, { fragments: [100, 100], tableBytes: [0, 0, 0, 0, ...text] });
+    const dcm = DicomMessage.readFile(input);
+    const entries = dcm.dict["7FE00010"].basicOffsetTable!;
+    expect(entries.length).toBe(9);
+    let message = "";
+    try {
+      dcm.write(anonymize(dcm.dict));
+    } catch (e) {
+      message = (e as Error).message;
+    }
+    expect(message).toMatch(/\b9\b/);
+    expect(message).toMatch(/\b2\b/);
+    for (const entry of entries.slice(1)) expect(message).not.toContain(String(entry));
+  });
+
+  describe("refuses a table entry that does not fit in 32 bits (fragment lengths [FFFFFFFE, 2])", () => {
+    const fake = (n: number) => ({ byteLength: n } as unknown as ArrayBuffer);
+    const write = (table: number[]) => {
+      const vr = ValueRepresentation.createByTypeString("OB");
+      const stream = new WriteBufferStream(256, true);
+      return () => vr.writeBytes(stream, [fake(0xfffffffe), fake(2)], "1.2.840.10008.1.2.1", true, table);
+    };
+    it("when the table is rebuilt: [0,0] would become [0,100000006]", () => {
+      expectEncapsulationError(write([0, 0]), "OFFSET_TOO_LARGE");
+    });
+    it("when the table is supplied: [0,100000006]", () => {
+      expectEncapsulationError(write([0, 0x100000006]), "OFFSET_TOO_LARGE");
+    });
   });
 
   it("refuses to write an odd-length fragment instead of padding it (padding would shift later offsets)", () => {
@@ -692,6 +734,16 @@ describe("Extended Offset Table (7FE0,0001) and Lengths (7FE0,0002), VR OV", () 
     expect(dcm.dict["7FE00002"].vr).toBe("OV");
   });
 
+  it("DicomDict.upsertTag drops both attributes when the Pixel Data value is replaced", () => {
+    const dcm = DicomMessage.readFile(withEot().buf);
+    dcm.upsertTag("7FE00010", "OB", [new ArrayBuffer(10), new ArrayBuffer(20)]);
+    expect(dcm.dict["7FE00001"]).toBeUndefined();
+    expect(dcm.dict["7FE00002"]).toBeUndefined();
+    const reread = DicomMessage.readFile(dcm.write());
+    expect(reread.dict["7FE00001"]).toBeUndefined();
+    expect(reread.dict["7FE00002"]).toBeUndefined();
+  });
+
   it("keeps both attributes byte-identical through anonymisation, with the frames unchanged", () => {
     const { buf, eot, lens } = withEot();
     expectFramesIdenticalIn(buf);
@@ -804,11 +856,57 @@ describe("Functional groups: nested whitelist (PS3.15 Annex E Table E.1-1, PS3.3
     }
   });
 
-  it("drops functional-group macros that are not whitelisted (Real World Value Mapping, Contrast/Bolus Usage)", () => {
+  it("drops functional-group macros that are not whitelisted (Contrast/Bolus Usage)", () => {
     const { reread } = anonymisedPlanted();
     const shared = (reread.dict["52009229"].Value as Array<TagDict>)[0];
-    expect(shared["00409096"]).toBeUndefined();
     expect(shared["00189341"]).toBeUndefined();
+  });
+
+  it("keeps the Real World Value Mapping numbers and units and removes its LUT Label and LUT Explanation (PS3.3 C.7.6.16.2.11)", () => {
+    const dcm = DicomMessage.readFile(readFixture(name));
+    const shared = (dcm.dict["52009229"].Value as Array<TagDict>)[0];
+    const mappingIn = shared["00409096"].Value[0] as TagDict;
+    mappingIn["00409212"] = { vr: "FD", Value: [0.5, 1.5, 2.5] }; // Real World Value LUT Data
+    const output = dcm.write(anonymize(dcm.dict));
+    const reread = DicomMessage.readFile(output);
+    const out = (reread.dict["52009229"].Value as Array<TagDict>)[0];
+    const mapping = out["00409096"].Value[0] as TagDict;
+    expect(mapping["00409216"].Value).toEqual([0]); // Real World Value First Value Mapped
+    expect(mapping["00409211"].Value).toEqual([4095]); // Real World Value Last Value Mapped
+    expect(mapping["00409224"].Value).toEqual([-1024]); // Real World Value Intercept
+    expect(mapping["00409225"].Value).toEqual([1]); // Real World Value Slope
+    expect(mapping["00409212"].Value).toEqual([0.5, 1.5, 2.5]);
+    const units = mapping["004008EA"].Value[0] as TagDict;
+    expect(units["00080100"].Value).toEqual(["ml/100ml/s"]);
+    expect(units["00080102"].Value).toEqual(["UCUM"]);
+    expect(mapping["00409210"]).toBeUndefined(); // LUT Label
+    expect(mapping["00283003"]).toBeUndefined(); // LUT Explanation
+    expect(Buffer.from(output).indexOf("Regional Cerebral Blood Flow")).toBe(-1);
+  });
+
+  it("keeps Long Code Value (0008,0119) and URN Code Value (0008,0120), the Type 1C alternatives to Code Value (PS3.3 8.8)", () => {
+    const dcm = DicomMessage.readFile(readFixture(name));
+    const shared = (dcm.dict["52009229"].Value as Array<TagDict>)[0];
+    const anatomy = shared["00209071"].Value[0] as TagDict;
+    anatomy["00082218"] = sq(
+      { "00080120": { vr: "UR", Value: ["http://snomed.info/id/12738006"] }, "00080104": { vr: "LO", Value: ["Brain"] } },
+      { "00080119": { vr: "UC", Value: ["LONGCODEVALUE-0123456789"] }, "00080102": { vr: "SH", Value: ["99TEST"] }, "00080104": { vr: "LO", Value: ["Brain"] } }
+    );
+    const reread = DicomMessage.readFile(dcm.write(anonymize(dcm.dict)));
+    const out = (reread.dict["52009229"].Value as Array<TagDict>)[0];
+    const regions = (out["00209071"].Value[0] as TagDict)["00082218"].Value as Array<TagDict>;
+    expect(regions[0]["00080120"].Value.map((v) => String(v).trim())).toEqual(["http://snomed.info/id/12738006"]);
+    expect(regions[1]["00080119"].Value.map((v) => String(v).trim())).toEqual(["LONGCODEVALUE-0123456789"]);
+  });
+
+  it("keeps Derivation Image Sequence as an empty sequence (Type 2, PS3.3 C.7.6.16.2.6), without its contents", () => {
+    const { reread } = anonymisedPlanted();
+    const frame0 = (reread.dict["52009230"].Value as Array<TagDict>)[0];
+    expect(frame0["00089124"]).toBeDefined();
+    expect(frame0["00089124"].vr).toBe("SQ");
+    expect(frame0["00089124"].Value).toEqual([]);
+    const frame1 = (reread.dict["52009230"].Value as Array<TagDict>)[1];
+    expect(frame1["00089124"]).toBeUndefined();
   });
 
   it("keeps the Mandatory Frame Anatomy macro as coded anatomy only", () => {
@@ -829,10 +927,10 @@ describe("Functional groups: nested whitelist (PS3.15 Annex E Table E.1-1, PS3.3
     expect(anonymize(dict)["52009230"]).toBeUndefined();
   });
 
-  it("lists Enhanced CT, MR and XA as supported, each with a class policy that keeps the functional groups", () => {
+  it("does not list Enhanced CT, MR and XA as supported (acquisition macros not yet reviewed), yet gives each a class policy that keeps the functional groups", () => {
     const supported = supportedSOPClasses();
     for (const uid of [ENHANCED_CT, ENHANCED_MR, ENHANCED_XA]) {
-      expect(supported).toContain(uid);
+      expect(supported).not.toContain(uid);
       const policy = policyFor(uid);
       expect(policy["00080016"]).toMatchObject({ action: "replace", value: [uid] });
       expect(policy["52009229"].action).toBe("keep");
