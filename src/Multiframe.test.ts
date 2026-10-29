@@ -490,6 +490,11 @@ describe("Encapsulated Pixel Data reader rejects malformed encodings with a type
     expectEncapsulationError(() => DicomMessage.readFile(buf), "FRAGMENT_LENGTH_ODD");
   });
 
+  it("rejects a zero-length fragment (PS3.5 A.4: an even number of bytes greater or equal to two)", () => {
+    const buf = withEncapsulated(name, { fragments: [0, 100], table: [0, 8] });
+    expectEncapsulationError(() => DicomMessage.readFile(buf), "FRAGMENT_LENGTH_ZERO");
+  });
+
   it("rejects an undefined (FFFFFFFF) fragment length", () => {
     const buf = withEncapsulated(name, { fragments: [100, 100], table: [0, 108] });
     new DataView(buf).setUint32(firstFragmentAt(buf) + 4, 0xffffffff, true);
@@ -624,6 +629,13 @@ describe("Encapsulated Pixel Data writer checks the Basic Offset Table against t
     expectEncapsulationError(() => dcm.write(anon), "FRAGMENT_LENGTH_ODD");
   });
 
+  it("refuses to write a zero-length fragment (PS3.5 A.4: an even number of bytes greater or equal to two)", () => {
+    const dcm = DicomMessage.readFile(withEncapsulated(name, { fragments: [100, 100], table: [0, 108] }));
+    const anon = anonymize(dcm.dict);
+    anon["7FE00010"] = { vr: "OB", Value: [new ArrayBuffer(100), new ArrayBuffer(0)], basicOffsetTable: [0, 108] };
+    expectEncapsulationError(() => dcm.write(anon), "FRAGMENT_LENGTH_ZERO");
+  });
+
   it("refuses a fragment longer than FFFFFFFE bytes rather than wrapping its 32-bit length", () => {
     const vr = ValueRepresentation.createByTypeString("OB");
     const huge = { byteLength: 0x100000000 } as unknown as ArrayBuffer;
@@ -704,6 +716,32 @@ describe("Only Pixel Data is encapsulated under a compressed transfer syntax", (
     expect(i).toBeGreaterThan(0);
     expect(new DataView(out.buffer).getUint32(i + 8, true)).toBe(6);
     expect(Array.from(out.subarray(i + 12, i + 18))).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it("writes native Pixel Data nested in a sequence item (Icon Image Sequence) with its defined length; only top-level Pixel Data is encapsulated", () => {
+    const dcm = DicomMessage.readFile(withEncapsulated("examples_ybr_color.dcm", { fragments: [100, 100], table: [0, 108] }));
+    const icon = new Uint8Array([9, 8, 7, 6]).buffer;
+    dcm.dict["00880200"] = {
+      vr: "SQ",
+      Value: [{
+        "00280010": { vr: "US", Value: [2] },
+        "00280011": { vr: "US", Value: [2] },
+        "7FE00010": { vr: "OB", Value: [icon] },
+      }],
+    };
+    const output = dcm.write();
+    // The nested element sorts first, so the first (7FE0,0010) header is the icon's.
+    const nested = rawPixelData(output);
+    expect(nested.undefinedLength).toBe(false);
+    expect(Array.from(nested.value)).toEqual([9, 8, 7, 6]);
+    const reread = DicomMessage.readFile(output);
+    const item = reread.dict["00880200"].Value[0] as TagDict;
+    expect(Array.from(new Uint8Array(item["7FE00010"].Value[0] as ArrayBuffer))).toEqual([9, 8, 7, 6]);
+    expect("basicOffsetTable" in item["7FE00010"]).toBe(false);
+    // Top-level Pixel Data stays encapsulated.
+    const top = reread.dict["7FE00010"];
+    expect(top.basicOffsetTable).toEqual([0, 108]);
+    expect((top.Value as Array<ArrayBuffer>).map((f) => f.byteLength)).toEqual([100, 100]);
   });
 });
 
@@ -954,6 +992,21 @@ describe("Functional groups: nested whitelist (PS3.15 Annex E Table E.1-1, PS3.3
       "52009230": { vr: "UN", Value: ["LEAKRAW"] },
     };
     expect(anonymize(dict)["52009230"]).toBeUndefined();
+  });
+
+  it("Enhanced CT: replaces Acquisition DateTime (0008,002A) with a dummy (Table E.1-1 X/Z/D; Type 1C in C.8.15.2) and keeps Acquisition Duration (0018,9073)", () => {
+    const dcm = plantedECT();
+    dcm.dict["0008002A"] = { vr: "DT", Value: ["20240101123456.000000"] };
+    dcm.dict["00189073"] = { vr: "FD", Value: [3.5] };
+    const anon = anonymize(dcm.dict);
+    expect(anon["0008002A"]).toEqual({ vr: "DT", Value: ["19700101000000.000000"] });
+    expect(anon["00189073"]).toEqual({ vr: "FD", Value: [3.5] });
+    const output = dcm.write(anon);
+    const reread = DicomMessage.readFile(output);
+    // DT is written padded to even length; compare the value, not the pad.
+    expect(reread.dict["0008002A"].Value.map((v) => String(v).trim())).toEqual(["19700101000000.000000"]);
+    expect(Buffer.from(output).indexOf("20240101123456")).toBe(-1);
+    expect(reread.dict["00189073"].Value).toEqual([3.5]);
   });
 
   it("does not list Enhanced CT, MR and XA as supported (acquisition macros not yet reviewed), yet gives each a class policy that keeps the functional groups", () => {
