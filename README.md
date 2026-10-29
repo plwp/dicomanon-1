@@ -347,7 +347,7 @@ The following 241 tags are retained because they are technical imaging/acquisiti
 
 ### Inside kept sequences
 
-Kept sequences are cleaned item by item with their own whitelist: anything not listed here is removed from each item. These 140 rules apply inside the multi-frame functional groups; the reasons, with PS3.15 Table E.1-1 citations, are in `src/Policies.ts`.
+Kept sequences are cleaned item by item with their own whitelist: anything not listed here is removed from each item. These 144 rules apply inside the multi-frame functional groups; the reasons, with PS3.15 Table E.1-1 citations, are in `src/Policies.ts`.
 
 | Path | Action | Description |
 | --- | --- | --- |
@@ -407,7 +407,7 @@ Kept sequences are cleaned item by item with their own whitelist: anything not l
 | `(5200,9229)` > `(0028,9145)` > `(0028,1053)` | keep | Rescale Slope |
 | `(5200,9229)` > `(0028,9145)` > `(0028,1054)` | keep | Rescale Type |
 | `(5200,9229)` > `(0040,9096)` | keep | Real World Value Mapping Sequence |
-| `(5200,9229)` > `(0040,9096)` > `(0028,3003)` | remove | LUT Explanation |
+| `(5200,9229)` > `(0040,9096)` > `(0028,3003)` | replace | LUT Explanation |
 | `(5200,9229)` > `(0040,9096)` > `(0040,08EA)` | keep | Measurement Units Code Sequence |
 | `(5200,9229)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0100)` | keep | Code Value |
 | `(5200,9229)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0102)` | keep | Coding Scheme Designator |
@@ -415,9 +415,11 @@ Kept sequences are cleaned item by item with their own whitelist: anything not l
 | `(5200,9229)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0104)` | keep | Code Meaning |
 | `(5200,9229)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0119)` | keep | Long Code Value |
 | `(5200,9229)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0120)` | keep | URN Code Value |
-| `(5200,9229)` > `(0040,9096)` > `(0040,9210)` | remove | LUT Label |
+| `(5200,9229)` > `(0040,9096)` > `(0040,9210)` | replace | LUT Label |
 | `(5200,9229)` > `(0040,9096)` > `(0040,9211)` | keep | Real World Value Last Value Mapped |
 | `(5200,9229)` > `(0040,9096)` > `(0040,9212)` | keep | Real World Value LUT Data |
+| `(5200,9229)` > `(0040,9096)` > `(0040,9213)` | keep | Double Float Real World Value Last Value Mapped |
+| `(5200,9229)` > `(0040,9096)` > `(0040,9214)` | keep | Double Float Real World Value First Value Mapped |
 | `(5200,9229)` > `(0040,9096)` > `(0040,9216)` | keep | Real World Value First Value Mapped |
 | `(5200,9229)` > `(0040,9096)` > `(0040,9224)` | keep | Real World Value Intercept |
 | `(5200,9229)` > `(0040,9096)` > `(0040,9225)` | keep | Real World Value Slope |
@@ -477,7 +479,7 @@ Kept sequences are cleaned item by item with their own whitelist: anything not l
 | `(5200,9230)` > `(0028,9145)` > `(0028,1053)` | keep | Rescale Slope |
 | `(5200,9230)` > `(0028,9145)` > `(0028,1054)` | keep | Rescale Type |
 | `(5200,9230)` > `(0040,9096)` | keep | Real World Value Mapping Sequence |
-| `(5200,9230)` > `(0040,9096)` > `(0028,3003)` | remove | LUT Explanation |
+| `(5200,9230)` > `(0040,9096)` > `(0028,3003)` | replace | LUT Explanation |
 | `(5200,9230)` > `(0040,9096)` > `(0040,08EA)` | keep | Measurement Units Code Sequence |
 | `(5200,9230)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0100)` | keep | Code Value |
 | `(5200,9230)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0102)` | keep | Coding Scheme Designator |
@@ -485,9 +487,11 @@ Kept sequences are cleaned item by item with their own whitelist: anything not l
 | `(5200,9230)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0104)` | keep | Code Meaning |
 | `(5200,9230)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0119)` | keep | Long Code Value |
 | `(5200,9230)` > `(0040,9096)` > `(0040,08EA)` > `(0008,0120)` | keep | URN Code Value |
-| `(5200,9230)` > `(0040,9096)` > `(0040,9210)` | remove | LUT Label |
+| `(5200,9230)` > `(0040,9096)` > `(0040,9210)` | replace | LUT Label |
 | `(5200,9230)` > `(0040,9096)` > `(0040,9211)` | keep | Real World Value Last Value Mapped |
 | `(5200,9230)` > `(0040,9096)` > `(0040,9212)` | keep | Real World Value LUT Data |
+| `(5200,9230)` > `(0040,9096)` > `(0040,9213)` | keep | Double Float Real World Value Last Value Mapped |
+| `(5200,9230)` > `(0040,9096)` > `(0040,9214)` | keep | Double Float Real World Value First Value Mapped |
 | `(5200,9230)` > `(0040,9096)` > `(0040,9216)` | keep | Real World Value First Value Mapped |
 | `(5200,9230)` > `(0040,9096)` > `(0040,9224)` | keep | Real World Value Intercept |
 | `(5200,9230)` > `(0040,9096)` > `(0040,9225)` | keep | Real World Value Slope |

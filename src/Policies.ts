@@ -639,10 +639,12 @@ function enhancedGeneralEquipmentModulePolicy(): IPolicy {
       alternatives to Code Value (PS3.3 8.8).
     Real World Value Mapping Sequence (0040,9096), PS3.3 C.7.6.16.2.11 >
       Real World Value First Value Mapped (0040,9216), Last Value Mapped
-      (0040,9211), Intercept (0040,9224), Slope (0040,9225), LUT Data
-      (0040,9212), Measurement Units Code Sequence (0040,08EA) as a code.
-      The numeric mapping from stored pixels to quantities (e.g. perfusion
-      in ml/100ml/s), which Enhanced CT conditionally requires.
+      (0040,9211), their double-float alternatives (0040,9214)/(0040,9213)
+      (Type 1C, required when the integer pair is absent), Intercept
+      (0040,9224), Slope (0040,9225), LUT Data (0040,9212), Measurement
+      Units Code Sequence (0040,08EA) as a code. The numeric mapping from
+      stored pixels to quantities (e.g. perfusion in ml/100ml/s), which
+      Enhanced CT conditionally requires.
 
   Kept empty (Type 2, so an empty value satisfies the IOD):
     Derivation Image Sequence (0008,9124). Conditionally required for
@@ -664,13 +666,19 @@ function enhancedGeneralEquipmentModulePolicy(): IPolicy {
     Frame Acquisition DateTime (0018,9074)
     Frame Reference DateTime (0018,9151)
 
+  Replaced with a fixed value (a conformance choice, not a Table E.1-1
+  action: neither attribute is listed there):
+    Real World Value Mapping item > LUT Label (0040,9210) "RWVM" and LUT
+      Explanation (0028,3003) "Real world value mapping". Free text, but
+      Type 1 in the item (PS3.3 Table C.7.6.16-12), so removal would break
+      conformance; a fixed non-empty value keeps the item valid and carries
+      none of the input text.
+
   Removed:
     Frame Comments (0020,9158): Table E.1-1 action X.
-    Frame Label (0020,9453), Window Center & Width Explanation (0028,1055),
-      and in Real World Value Mapping, LUT Label (0040,9210) and LUT
-      Explanation (0028,3003): free text, not listed in Table E.1-1. The
-      standard leaves these to judgement, so the de-identifying option
-      (remove) is taken.
+    Frame Label (0020,9453), Window Center & Width Explanation (0028,1055):
+      free text, not listed in Table E.1-1. The standard leaves these to
+      judgement, so the de-identifying option (remove) is taken.
     Every other macro and attribute, by the whitelist default, including
     Contrast/Bolus Usage (0018,9341), whose agent numbers point into the
     top-level Contrast/Bolus Agent Sequence that this policy already removes.
@@ -842,6 +850,14 @@ function functionalGroupItemPolicy(): IPolicy {
           action: "keep",
           description: "Real World Value Last Value Mapped",
         },
+        "00409214": {
+          action: "keep",
+          description: "Double Float Real World Value First Value Mapped",
+        },
+        "00409213": {
+          action: "keep",
+          description: "Double Float Real World Value Last Value Mapped",
+        },
         "00409224": { action: "keep", description: "Real World Value Intercept" },
         "00409225": { action: "keep", description: "Real World Value Slope" },
         "00409212": { action: "keep", description: "Real World Value LUT Data" },
@@ -850,10 +866,17 @@ function functionalGroupItemPolicy(): IPolicy {
           description: "Measurement Units Code Sequence",
           items: codeSequenceItemPolicy(),
         },
-        "00409210": { action: "remove", description: "LUT Label (free text)" },
+        "00409210": {
+          action: "replace",
+          value: ["RWVM"],
+          description:
+            "LUT Label, fixed value (Type 1 in the item, PS3.3 Table C.7.6.16-12; not in Table E.1-1)",
+        },
         "00283003": {
-          action: "remove",
-          description: "LUT Explanation (free text)",
+          action: "replace",
+          value: ["Real world value mapping"],
+          description:
+            "LUT Explanation, fixed value (Type 1 in the item, PS3.3 Table C.7.6.16-12; not in Table E.1-1)",
         },
       },
     },
