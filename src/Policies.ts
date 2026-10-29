@@ -23,6 +23,14 @@ export interface IPolicy {
     description: string;
     value?: Array<any>;
     method?: ReplaceMethod;
+    /**
+     * For a kept Sequence (SQ): the whitelist applied to every Item, so the
+     * Sequence is kept and its contents cleaned (PS3.15 E.1.1 action "K":
+     * "requires recursively applying the Profile rules to each Data Set in
+     * each Item of the Sequence"). A value under such a rule that is not
+     * encoded as a Sequence is removed.
+     */
+    items?: IPolicy;
   };
 }
 
@@ -583,6 +591,239 @@ function enhancedGeneralEquipmentModulePolicy(): IPolicy {
   };
 }
 
+/******************************************************************************
+  MULTI-FRAME FUNCTIONAL GROUPS (nested whitelist)
+
+  Why keep them. Shared Functional Groups Sequence (5200,9229) is Type 1 and
+  Per-Frame Functional Groups Sequence (5200,9230) is Type 1C, required when
+  any frame has per-frame groups (PS3.3 C.7.6.16, Table C.7.6.16-1). The
+  Multi-frame Functional Groups Module is Mandatory in the Enhanced CT
+  (PS3.3 A.38), Enhanced MR (A.36.2.3) and Enhanced XA (A.47.3) IODs, and
+  their per-frame geometry (Plane Position) lives only here. Removing the
+  sequences, as earlier versions did, leaves a non-conformant file whose
+  frames cannot be placed in space.
+
+  How. Each Item is a Data Set of functional-group macros, so every Item is
+  filtered through functionalGroupItemPolicy(), itself a whitelist with
+  default "remove", recursively. PS3.15 Annex E (Basic Application Level
+  Confidentiality Profile), Table E.1-1, checked against PS3.15 2026d:
+
+  Kept: not listed in Table E.1-1 (the Profile requires no action), and
+  needed to display or measure the frames:
+    Plane Position Sequence (0020,9113) > Image Position (Patient) (0020,0032)
+    Plane Orientation Sequence (0020,9116) > Image Orientation (Patient) (0020,0037)
+    Pixel Measures Sequence (0028,9110) > Pixel Spacing (0028,0030),
+      Slice Thickness (0018,0050), Spacing Between Slices (0018,0088)
+    Frame VOI LUT Sequence (0028,9132) > Window Center (0028,1050),
+      Window Width (0028,1051), VOI LUT Function (0028,1056)
+    Pixel Value Transformation Sequence (0028,9145) > Rescale Intercept
+      (0028,1052), Rescale Slope (0028,1053), Rescale Type (0028,1054)
+    CT Image Frame Type Sequence (0018,9329), MR Image Frame Type Sequence
+      (0018,9226) > Frame Type (0008,9007), Pixel Presentation (0008,9205),
+      Volumetric Properties (0008,9206), Volume Based Calculation Technique
+      (0008,9207), Complex Image Component (0008,9208), Acquisition Contrast
+      (0008,9209)
+    Frame Content Sequence (0020,9111) > Frame Acquisition Number
+      (0020,9156), Dimension Index Values (0020,9157), Stack ID (0020,9056),
+      In-Stack Position Number (0020,9057), Temporal Position Index
+      (0020,9128), Frame Acquisition Duration (0018,9220), Cardiac Cycle
+      Position (0018,9236), Respiratory Cycle Position (0018,9214). These are
+      frame indices and relative timing, not dates.
+    Frame Anatomy Sequence (0020,9071) > Frame Laterality (0020,9072),
+      Anatomic Region Sequence (0008,2218) > Code Value (0008,0100), Coding
+      Scheme Designator (0008,0102), Coding Scheme Version (0008,0103), Code
+      Meaning (0008,0104). Coded anatomy, the same information as Body Part
+      Examined (0018,0015) which the policy already keeps; the macro is
+      Mandatory in all three IODs.
+
+  Hashed (Table E.1-1 action U, "replace with a non-zero length UID that is
+  internally consistent"):
+    Irradiation Event Identification Sequence (0018,9477) > Irradiation
+      Event UID (0008,3010). Same deterministic hash as SOP Instance UID, so
+      every frame of one event keeps one UID.
+
+  Replaced with the dummy 19700101000000.000000 (Table E.1-1 action D,
+  "replace with a non-zero length value that may be a dummy value"; D, not
+  X, because these are Type 1C in Frame Content and removal would break
+  conformance):
+    Frame Acquisition DateTime (0018,9074)
+    Frame Reference DateTime (0018,9151)
+
+  Removed:
+    Frame Comments (0020,9158): Table E.1-1 action X.
+    Derivation Image Sequence (0008,9124): its Source Image Sequence
+      (0008,2112) is X/Z/U* ("X unless Z or U is required to maintain IOD
+      conformance"); the macro is User optional in these IODs, so X, and
+      Derivation Description (0008,2111) inside it is X.
+    Frame Label (0020,9453), Window Center & Width Explanation (0028,1055),
+      Real World Value Mapping Sequence (0040,9096, carries LUT Explanation
+      and LUT Label): free text, not listed in Table E.1-1. The standard
+      leaves these to judgement, so the de-identifying option (remove) is
+      taken.
+    Every other macro and attribute, by the whitelist default, including
+    Contrast/Bolus Usage (0018,9341), whose agent numbers point into the
+    top-level Contrast/Bolus Agent Sequence that this policy already removes.
+\******************************************************************************/
+
+const REMOVE_UNLISTED = {
+  action: "remove",
+  description: "Remove anything not whitelisted inside this sequence item",
+} as const;
+
+function codeSequenceItemPolicy(): IPolicy {
+  return {
+    default: REMOVE_UNLISTED,
+    "00080100": { action: "keep", description: "Code Value" },
+    "00080102": { action: "keep", description: "Coding Scheme Designator" },
+    "00080103": { action: "keep", description: "Coding Scheme Version" },
+    "00080104": { action: "keep", description: "Code Meaning" },
+  };
+}
+
+function frameContentItemPolicy(): IPolicy {
+  return {
+    default: REMOVE_UNLISTED,
+    "00209156": { action: "keep", description: "Frame Acquisition Number" },
+    "00209157": { action: "keep", description: "Dimension Index Values" },
+    "00209056": { action: "keep", description: "Stack ID" },
+    "00209057": { action: "keep", description: "In-Stack Position Number" },
+    "00209128": { action: "keep", description: "Temporal Position Index" },
+    "00189220": { action: "keep", description: "Frame Acquisition Duration" },
+    "00189236": { action: "keep", description: "Cardiac Cycle Position" },
+    "00189214": { action: "keep", description: "Respiratory Cycle Position" },
+    "00189074": {
+      action: "replace",
+      value: ["19700101000000.000000"],
+      description: "Frame Acquisition DateTime (PS3.15 Table E.1-1: D)",
+    },
+    "00189151": {
+      action: "replace",
+      value: ["19700101000000.000000"],
+      description: "Frame Reference DateTime (PS3.15 Table E.1-1: D)",
+    },
+    "00209158": {
+      action: "remove",
+      description: "Frame Comments (PS3.15 Table E.1-1: X)",
+    },
+    "00209453": { action: "remove", description: "Frame Label (free text)" },
+  };
+}
+
+function frameTypeItemPolicy(): IPolicy {
+  return {
+    default: REMOVE_UNLISTED,
+    "00089007": { action: "keep", description: "Frame Type" },
+    "00089205": { action: "keep", description: "Pixel Presentation" },
+    "00089206": { action: "keep", description: "Volumetric Properties" },
+    "00089207": {
+      action: "keep",
+      description: "Volume Based Calculation Technique",
+    },
+    "00089208": { action: "keep", description: "Complex Image Component" },
+    "00089209": { action: "keep", description: "Acquisition Contrast" },
+  };
+}
+
+function functionalGroupItemPolicy(): IPolicy {
+  return {
+    default: REMOVE_UNLISTED,
+    "00209111": {
+      action: "keep",
+      description: "Frame Content Sequence",
+      items: frameContentItemPolicy(),
+    },
+    "00209113": {
+      action: "keep",
+      description: "Plane Position Sequence",
+      items: {
+        default: REMOVE_UNLISTED,
+        "00200032": { action: "keep", description: "Image Position (Patient)" },
+      },
+    },
+    "00209116": {
+      action: "keep",
+      description: "Plane Orientation Sequence",
+      items: {
+        default: REMOVE_UNLISTED,
+        "00200037": {
+          action: "keep",
+          description: "Image Orientation (Patient)",
+        },
+      },
+    },
+    "00289110": {
+      action: "keep",
+      description: "Pixel Measures Sequence",
+      items: {
+        default: REMOVE_UNLISTED,
+        "00280030": { action: "keep", description: "Pixel Spacing" },
+        "00180050": { action: "keep", description: "Slice Thickness" },
+        "00180088": { action: "keep", description: "Spacing Between Slices" },
+      },
+    },
+    "00289132": {
+      action: "keep",
+      description: "Frame VOI LUT Sequence",
+      items: {
+        default: REMOVE_UNLISTED,
+        "00281050": { action: "keep", description: "Window Center" },
+        "00281051": { action: "keep", description: "Window Width" },
+        "00281056": { action: "keep", description: "VOI LUT Function" },
+      },
+    },
+    "00289145": {
+      action: "keep",
+      description: "Pixel Value Transformation Sequence",
+      items: {
+        default: REMOVE_UNLISTED,
+        "00281052": { action: "keep", description: "Rescale Intercept" },
+        "00281053": { action: "keep", description: "Rescale Slope" },
+        "00281054": { action: "keep", description: "Rescale Type" },
+      },
+    },
+    "00189329": {
+      action: "keep",
+      description: "CT Image Frame Type Sequence",
+      items: frameTypeItemPolicy(),
+    },
+    "00189226": {
+      action: "keep",
+      description: "MR Image Frame Type Sequence",
+      items: frameTypeItemPolicy(),
+    },
+    "00189477": {
+      action: "keep",
+      description: "Irradiation Event Identification Sequence",
+      items: {
+        default: REMOVE_UNLISTED,
+        "00083010": {
+          action: "regenerate",
+          method: "hash",
+          description: "Irradiation Event UID (PS3.15 Table E.1-1: U)",
+        },
+      },
+    },
+    "00209071": {
+      action: "keep",
+      description: "Frame Anatomy Sequence",
+      items: {
+        default: REMOVE_UNLISTED,
+        "00209072": { action: "keep", description: "Frame Laterality" },
+        "00082218": {
+          action: "keep",
+          description: "Anatomic Region Sequence (coded anatomy)",
+          items: codeSequenceItemPolicy(),
+        },
+      },
+    },
+    "00089124": {
+      action: "remove",
+      description:
+        "Derivation Image Sequence (Source Image Sequence: PS3.15 Table E.1-1 X/Z/U*)",
+    },
+  };
+}
+
 function multiframeFunctionalGroupsSequenceModulePolicy(): IPolicy {
   return {
     "00200013": { action: "keep", description: "Instance Number" },
@@ -597,6 +838,17 @@ function multiframeFunctionalGroupsSequenceModulePolicy(): IPolicy {
       description: "Content Time",
     },
     "00280008": { action: "keep", description: "Number of Frames" },
+    "52009229": {
+      action: "keep",
+      description: "Shared Functional Groups Sequence (Type 1, PS3.3 C.7.6.16)",
+      items: functionalGroupItemPolicy(),
+    },
+    "52009230": {
+      action: "keep",
+      description:
+        "Per-Frame Functional Groups Sequence (Type 1C, PS3.3 C.7.6.16)",
+      items: functionalGroupItemPolicy(),
+    },
   };
 }
 
@@ -1232,6 +1484,53 @@ function positronEmissionTomographyImagePolicy(): IPolicy {
   );
 }
 
+/**
+ * Enhanced CT, MR and XA Image IODs (PS3.3 A.38, A.36.2, A.47). The
+ * Multi-frame Functional Groups Module is Mandatory in each; its nested
+ * whitelist is documented at functionalGroupItemPolicy(). The Enhanced CT,
+ * MR and XA Image Modules share the image attributes kept by
+ * xRay3DImageModulePolicy().
+ */
+function enhancedImagePolicy(classUID: string): IPolicy {
+  return addPolicies(
+    patientModulePolicy(),
+    generalStudyModulePolicy(),
+    generalSeriesModulePolicy(),
+    frameOfReferenceModulePolicy(),
+    generalEquipmentModulePolicy(),
+    enhancedGeneralEquipmentModulePolicy(),
+    imagePixelModulePolicy(),
+    multiframeFunctionalGroupsSequenceModulePolicy(),
+    multiframeDimensionModulePolicy(),
+    acquisitionContextModulePolicy(),
+    xRay3DImageModulePolicy(),
+    sopCommonModulePolicy(),
+    {
+      default: {
+        action: "remove",
+        description: "The default policy is to remove unspecified tags",
+      },
+      "00080016": {
+        action: "replace",
+        value: [classUID],
+        description: "SOP Class UID",
+      },
+    }
+  );
+}
+
+function enhancedCTImagePolicy(): IPolicy {
+  return enhancedImagePolicy("1.2.840.10008.5.1.4.1.1.2.1");
+}
+
+function enhancedMRImagePolicy(): IPolicy {
+  return enhancedImagePolicy("1.2.840.10008.5.1.4.1.1.4.1");
+}
+
+function enhancedXAImagePolicy(): IPolicy {
+  return enhancedImagePolicy("1.2.840.10008.5.1.4.1.1.12.1.1");
+}
+
 // This policy captures all module policies and will be thrown at unknowns.
 function catchAllWhitelistPolicy(): IPolicy {
   return addPolicies(
@@ -1297,11 +1596,14 @@ let policydict: {[key: string]: () => IPolicy} = {
   "1.2.840.10008.5.1.4.1.1.1.1": digitalXRayPolicy,
   "1.2.840.10008.5.1.4.1.1.1.2": digitalMammographyXRayPolicy,
   "1.2.840.10008.5.1.4.1.1.2": ctImagePolicy,
+  "1.2.840.10008.5.1.4.1.1.2.1": enhancedCTImagePolicy,
   "1.2.840.10008.5.1.4.1.1.3.1": ultrasoundMultiframeImagePolicy,
   "1.2.840.10008.5.1.4.1.1.4": mrImagePolicy,
+  "1.2.840.10008.5.1.4.1.1.4.1": enhancedMRImagePolicy,
   "1.2.840.10008.5.1.4.1.1.4.2": mrSpectroscopyImagePolicy,
   "1.2.840.10008.5.1.4.1.1.6.1": ultrasoundImagePolicy,
   "1.2.840.10008.5.1.4.1.1.12.1": xRayAngiographicImagePolicy,
+  "1.2.840.10008.5.1.4.1.1.12.1.1": enhancedXAImagePolicy,
   "1.2.840.10008.5.1.4.1.1.12.2": xRayRadiofluoroscopicImagePolicy,
   "1.2.840.10008.5.1.4.1.1.13.1.1": xRay3DAngiographicImagePolicy,
   "1.2.840.10008.5.1.4.1.1.20": nuclearMedicineImagePolicy,
